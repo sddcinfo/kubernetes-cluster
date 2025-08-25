@@ -52,9 +52,11 @@ source "proxmox-iso" "ubuntu-k8s" {
   template_description = var.template_description
   
   # ISO settings
-  iso_file         = "local:iso/ubuntu-24.04.1-live-server-amd64.iso"
-  iso_storage_pool = "local"
-  unmount_iso      = true
+  boot_iso {
+    iso_file         = "local:iso/ubuntu-24.04.1-live-server-amd64.iso"
+    iso_storage_pool = "local"
+  }
+  unmount_iso = true
   
   # Hardware specs
   cores   = "4"
@@ -95,7 +97,7 @@ source "proxmox-iso" "ubuntu-k8s" {
   boot_wait = "5s"
   
   # HTTP server for cloud-init
-  http_directory = "packer/http"
+  http_directory = "http"
   http_port_min  = 8802
   http_port_max  = 8802
   
