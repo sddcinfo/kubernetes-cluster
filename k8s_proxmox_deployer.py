@@ -208,11 +208,12 @@ class EventDrivenDeployer:
         if not success:
             logger.warning("Failed to install python3-kubernetes, continuing anyway")
         
-        # Generate SSH key if needed
-        if not Path("~/.ssh/id_rsa.pub").expanduser().exists():
-            success, _, _ = await self.run_command('ssh-keygen -t rsa -b 4096 -f ~/.ssh/id_rsa -N ""')
-            if not success:
-                return False
+        # Verify existing automation SSH key
+        if not Path("~/.ssh/sysadmin_automation_key.pub").expanduser().exists():
+            logger.error("sysadmin_automation_key not found. This key should already exist.")
+            return False
+        else:
+            logger.info("Using existing sysadmin_automation_key for authentication")
                 
         return True
 
@@ -314,15 +315,20 @@ class EventDrivenDeployer:
         # Destroy existing VM 9001 if it exists (non-template)
         await self.run_command(f'ssh {proxmox_host} "qm stop 9001 && qm destroy 9001"')
         
-        # Create VM for base template
+        # Create VM for base template with high-performance optimizations
         create_cmd = f'''ssh {proxmox_host} "
-            qm create 9001 --name ubuntu-2404-cloud-template --memory 2048 --cores 2 --net0 virtio,bridge=vmbr0 --scsihw virtio-scsi-pci &&
-            qm set 9001 --scsi0 {self.config.storage_pool}:0,import-from=/var/lib/vz/template/iso/ubuntu-24.04-cloudimg.img &&
+            qm create 9001 --name ubuntu-2404-cloud-template-optimized --memory 2048 --cores 2 --cpu host --numa 1 --net0 virtio,bridge=vmbr0,queues=2 --scsihw virtio-scsi-single --ostype l26 &&
+            qm set 9001 --scsi0 {self.config.storage_pool}:0,import-from=/var/lib/vz/template/iso/ubuntu-24.04-cloudimg.img,cache=writeback,discard=on,iothread=1 &&
             qm set 9001 --ide2 {self.config.storage_pool}:cloudinit &&
+            qm set 9001 --rng0 source=/dev/urandom,max_bytes=2048,period=500 &&
             qm set 9001 --boot order=scsi0 &&
-            qm set 9001 --agent enabled=1 &&
+            qm set 9001 --agent enabled=1,fstrim_cloned_disks=1 &&
             qm set 9001 --ciuser ubuntu &&
             qm set 9001 --sshkeys /root/.ssh/authorized_keys &&
+            qm set 9001 --serial0 socket --vga serial0 &&
+            qm set 9001 --hotplug disk,network,usb,memory,cpu &&
+            qm set 9001 --tablet 0 &&
+            qm set 9001 --balloon 0 &&
             qm template 9001
         "'
         

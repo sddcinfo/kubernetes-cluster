@@ -21,11 +21,12 @@ source "proxmox-clone" "ubuntu-k8s" {
   # Clone from template - let me first create base template
   clone_vm_id = "9001"  # We'll create this first
   
+  # High-performance configuration (optimized base template already has CPU/hardware settings)
   cores   = "4"
   memory  = "4096"
   
   ssh_username         = "ubuntu"
-  ssh_private_key_file = "~/.ssh/id_rsa"
+  ssh_private_key_file = "~/.ssh/sysadmin_automation_key"
   ssh_timeout         = "10m"
 }
 
