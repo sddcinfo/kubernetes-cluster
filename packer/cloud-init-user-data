@@ -1,0 +1,23 @@
+#cloud-config
+users:
+  - name: ubuntu
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
+    ssh_authorized_keys:
+      - ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQCW6Lj5LH5q5EI3lYEBXmFpIY6/qktm68TtwmaqbUBE8HQQyWTopTQCTPOuQvsVOLEFBGH+aDA6Of2l3On7ZqZEojXUmL/JI/lseUf1rULJ9tlxCUbiMiENl9Xg3sdFpr8kEtLY+kclaW8SgjCNaDiUBLb4M7CqPm4vaDubGdCbs8/2XEhFQgI6j/mmCfZIC/EUygepx6yuwszXu3GBGU6CcEPTEN3Odu8xQpvRpVK2uRi45tlOiBQxkTCPToTcyJpJcBHVwm1MhFMaXnzyoXrD6TVu0o7ajfVwGT7e0wrZoStlujjlaSmxEAPkPi0LfNOFXl0P1ybliivwJUX6zAOtns/AIa27480p/e5x1sqYsqZIHmWc5vQ3rwyddj8wWwanV4JAKIHhUBxqDcb0syZYLPOPjER5avBUz97qBECvyD0hlvnag9IBj/F0ka62e6xOGqvL873CSI4IkBDWoImHgg2mnc2zgtwk+iQHnvvIpmMewTXU3TjSJz3WQArQbIh7pBYb2ut0Jw3GXqu4yNkHqx8tup2SnCNFHHcUe54Pi+7/r3Kvx0JYF+sC4YiT3MXff1B3uepKrEFl5DHP4tmZlkU9zHoGZVuo9xDEFQHESLc40ybTBy486yxrHrwmaC/IXOQbPHfDPorZKydIAN62ZHyImQPuRD6ALudu5aiDUw== sysadmin@mgmt
+    lock_passwd: false
+    passwd: '$6$MpQjIEU5MEQStrhF$kLP6alkk.s0J5tDxW76HFfuRR3/7r9ONC2w5qFd1xtAnJhrwrf9HrXDrwUJW9iEb5iRxlFYVNorQM07n4BeOV1'
+
+packages:
+  - qemu-guest-agent
+  - openssh-server
+
+runcmd:
+  - systemctl enable qemu-guest-agent
+  - systemctl start qemu-guest-agent
+  - systemctl enable ssh
+
+power_state:
+  mode: reboot
+  timeout: 30
+  condition: true

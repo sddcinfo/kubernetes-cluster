@@ -1,0 +1,68 @@
+terraform {
+  required_providers {
+    proxmox = {
+      source  = "bpg/proxmox"
+      version = "~> 0.70"
+    }
+  }
+}
+
+# Use the packer API token we already have
+provider "proxmox" {
+  endpoint  = "https://10.10.1.21:8006/"
+  api_token = "packer@pam!packer=7b2a3da7-bd30-4772-a6b0-874aa9b2f3a5"
+  insecure  = true
+  
+  # SSH might be needed for some operations
+  ssh {
+    agent    = false
+    username = "root"
+  }
+}
+
+# Create a simple VM by cloning template
+resource "proxmox_virtual_environment_vm" "test_vm" {
+  name        = "test-k8s-control"
+  description = "Test VM from golden template"
+  node_name   = "node1"
+  vm_id       = 150
+  
+  # Clone from our golden template
+  clone {
+    vm_id = 9003
+    full  = true
+  }
+  
+  # Basic resources
+  cpu {
+    cores = 2
+  }
+  
+  memory {
+    dedicated = 4096
+  }
+  
+  # Use existing disk from clone
+  
+  # Network - will get DHCP IP
+  network_device {
+    bridge = "vmbr0"
+    model  = "virtio"
+  }
+  
+  # Enable agent for IP detection
+  agent {
+    enabled = true
+  }
+  
+  # Start the VM
+  started = true
+}
+
+output "vm_id" {
+  value = proxmox_virtual_environment_vm.test_vm.vm_id
+}
+
+output "vm_name" {
+  value = proxmox_virtual_environment_vm.test_vm.name
+}

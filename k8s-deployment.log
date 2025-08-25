@@ -1,0 +1,183 @@
+2025-08-25 07:17:11,764 - k8s_proxmox_deployer - INFO - Starting task: test_prerequisites
+2025-08-25 07:17:11,764 - k8s_proxmox_deployer - INFO - Executing: which packer
+2025-08-25 07:17:11,766 - k8s_proxmox_deployer - INFO - Executing: which terraform
+2025-08-25 07:17:11,768 - k8s_proxmox_deployer - INFO - Executing: ansible-playbook --version
+2025-08-25 07:17:12,181 - k8s_proxmox_deployer - INFO - Executing: sudo apt update && sudo apt install -y python3-kubernetes
+2025-08-25 07:17:16,250 - k8s_proxmox_deployer - INFO - ✅ test_prerequisites completed in 4.49s
+2025-08-25 07:17:36,077 - k8s_proxmox_deployer - INFO - Starting task: proxmox_setup
+2025-08-25 07:17:36,077 - k8s_proxmox_deployer - INFO - Executing: ssh root@10.10.1.21 "pveum user add packer@pam --comment 'Packer automation user'"
+2025-08-25 07:17:37,478 - k8s_proxmox_deployer - ERROR - Command failed: ssh root@10.10.1.21 "pveum user add packer@pam --comment 'Packer automation user'"
+2025-08-25 07:17:37,478 - k8s_proxmox_deployer - ERROR - Error: Warning: Permanently added '10.10.1.21' (ED25519) to the list of known hosts.
+create user failed: user 'packer@pam' already exists
+
+2025-08-25 07:17:37,478 - k8s_proxmox_deployer - INFO - Executing: ssh root@10.10.1.21 "pveum user add terraform@pam --comment 'Terraform automation user'"
+2025-08-25 07:17:38,536 - k8s_proxmox_deployer - ERROR - Command failed: ssh root@10.10.1.21 "pveum user add terraform@pam --comment 'Terraform automation user'"
+2025-08-25 07:17:38,536 - k8s_proxmox_deployer - ERROR - Error: Warning: Permanently added '10.10.1.21' (ED25519) to the list of known hosts.
+create user failed: user 'terraform@pam' already exists
+
+2025-08-25 07:17:38,536 - k8s_proxmox_deployer - INFO - Executing: ssh root@10.10.1.21 "pveum role add PackerRole -privs \"VM.Allocate,VM.Clone,VM.Config.CDROM,VM.Config.CPU,VM.Config.Cloudinit,VM.Config.Disk,VM.Config.HWType,VM.Config.Memory,VM.Config.Network,VM.Config.Options,VM.Audit,VM.PowerMgmt,VM.Console,Sys.Modify,Pool.Allocate,Datastore.AllocateSpace,Datastore.Audit,SDN.Use\""
+2025-08-25 07:17:39,603 - k8s_proxmox_deployer - ERROR - Command failed: ssh root@10.10.1.21 "pveum role add PackerRole -privs \"VM.Allocate,VM.Clone,VM.Config.CDROM,VM.Config.CPU,VM.Config.Cloudinit,VM.Config.Disk,VM.Config.HWType,VM.Config.Memory,VM.Config.Network,VM.Config.Options,VM.Audit,VM.PowerMgmt,VM.Console,Sys.Modify,Pool.Allocate,Datastore.AllocateSpace,Datastore.Audit,SDN.Use\""
+2025-08-25 07:17:39,603 - k8s_proxmox_deployer - ERROR - Error: Warning: Permanently added '10.10.1.21' (ED25519) to the list of known hosts.
+create role failed: role 'PackerRole' already exists
+
+2025-08-25 07:17:39,603 - k8s_proxmox_deployer - INFO - Executing: ssh root@10.10.1.21 "pveum role add TerraformRole -privs \"VM.Allocate,VM.Clone,VM.Config.CDROM,VM.Config.CPU,VM.Config.Cloudinit,VM.Config.Disk,VM.Config.HWType,VM.Config.Memory,VM.Config.Network,VM.Config.Options,VM.Audit,VM.PowerMgmt,VM.Migrate,Sys.Modify,Sys.Audit,Pool.Allocate,Pool.Audit,Datastore.AllocateSpace,Datastore.Audit,SDN.Use\""
+2025-08-25 07:17:40,655 - k8s_proxmox_deployer - ERROR - Command failed: ssh root@10.10.1.21 "pveum role add TerraformRole -privs \"VM.Allocate,VM.Clone,VM.Config.CDROM,VM.Config.CPU,VM.Config.Cloudinit,VM.Config.Disk,VM.Config.HWType,VM.Config.Memory,VM.Config.Network,VM.Config.Options,VM.Audit,VM.PowerMgmt,VM.Migrate,Sys.Modify,Sys.Audit,Pool.Allocate,Pool.Audit,Datastore.AllocateSpace,Datastore.Audit,SDN.Use\""
+2025-08-25 07:17:40,655 - k8s_proxmox_deployer - ERROR - Error: Warning: Permanently added '10.10.1.21' (ED25519) to the list of known hosts.
+create role failed: role 'TerraformRole' already exists
+
+2025-08-25 07:17:40,655 - k8s_proxmox_deployer - INFO - Executing: ssh root@10.10.1.21 "pveum aclmod / -user packer@pam -role PackerRole"
+2025-08-25 07:17:41,713 - k8s_proxmox_deployer - INFO - Executing: ssh root@10.10.1.21 "pveum aclmod / -user terraform@pam -role TerraformRole"
+2025-08-25 07:17:42,732 - k8s_proxmox_deployer - INFO - Executing: ssh root@10.10.1.21 "pveum user token add packer@pam packer --privsep=0"
+2025-08-25 07:17:43,782 - k8s_proxmox_deployer - ERROR - Command failed: ssh root@10.10.1.21 "pveum user token add packer@pam packer --privsep=0"
+2025-08-25 07:17:43,782 - k8s_proxmox_deployer - ERROR - Error: Warning: Permanently added '10.10.1.21' (ED25519) to the list of known hosts.
+400 Parameter verification failed.
+tokenid: Token already exists.
+pveum user token add <userid> <tokenid> [OPTIONS] [FORMAT_OPTIONS]
+
+2025-08-25 07:17:43,782 - k8s_proxmox_deployer - INFO - Executing: ssh root@10.10.1.21 "pveum user token add terraform@pam terraform --privsep=0"
+2025-08-25 07:17:44,819 - k8s_proxmox_deployer - ERROR - Command failed: ssh root@10.10.1.21 "pveum user token add terraform@pam terraform --privsep=0"
+2025-08-25 07:17:44,820 - k8s_proxmox_deployer - ERROR - Error: Warning: Permanently added '10.10.1.21' (ED25519) to the list of known hosts.
+400 Parameter verification failed.
+tokenid: Token already exists.
+pveum user token add <userid> <tokenid> [OPTIONS] [FORMAT_OPTIONS]
+
+2025-08-25 07:17:44,820 - k8s_proxmox_deployer - ERROR - ❌ proxmox_setup failed after 8.74s
+2025-08-25 11:35:57,498 - __main__ - INFO - 🚀 Starting Kubernetes-on-Proxmox deployment
+2025-08-25 11:35:57,499 - __main__ - INFO - Starting task: prerequisites_check_prerequisites
+2025-08-25 11:35:57,499 - __main__ - INFO - Executing: which packer
+2025-08-25 11:35:57,502 - __main__ - INFO - Executing: which terraform
+2025-08-25 11:35:57,504 - __main__ - INFO - Executing: ansible-playbook --version
+2025-08-25 11:35:57,946 - __main__ - INFO - Executing: sudo apt update && sudo apt install -y python3-kubernetes
+2025-08-25 11:36:08,966 - __main__ - INFO - Using existing sysadmin_automation_key for authentication
+2025-08-25 11:36:08,966 - __main__ - INFO - ✅ prerequisites_check_prerequisites completed in 11.47s
+2025-08-25 11:36:08,966 - __main__ - INFO - Starting task: proxmox_setup_setup_proxmox_users_and_permissions
+2025-08-25 11:36:08,966 - __main__ - INFO - Executing: ssh root@10.10.1.21 "pveum user add packer@pam --comment 'Packer automation user'"
+2025-08-25 11:36:09,993 - __main__ - ERROR - Command failed: ssh root@10.10.1.21 "pveum user add packer@pam --comment 'Packer automation user'"
+2025-08-25 11:36:09,993 - __main__ - ERROR - Error: Warning: Permanently added '10.10.1.21' (ED25519) to the list of known hosts.
+create user failed: user 'packer@pam' already exists
+
+2025-08-25 11:36:09,993 - __main__ - INFO - Executing: ssh root@10.10.1.21 "pveum user add terraform@pam --comment 'Terraform automation user'"
+2025-08-25 11:36:10,994 - __main__ - ERROR - Command failed: ssh root@10.10.1.21 "pveum user add terraform@pam --comment 'Terraform automation user'"
+2025-08-25 11:36:10,994 - __main__ - ERROR - Error: Warning: Permanently added '10.10.1.21' (ED25519) to the list of known hosts.
+create user failed: user 'terraform@pam' already exists
+
+2025-08-25 11:36:10,994 - __main__ - INFO - Executing: ssh root@10.10.1.21 "pveum role add PackerRole -privs \"VM.Allocate,VM.Clone,VM.Config.CDROM,VM.Config.CPU,VM.Config.Cloudinit,VM.Config.Disk,VM.Config.HWType,VM.Config.Memory,VM.Config.Network,VM.Config.Options,VM.Audit,VM.PowerMgmt,VM.Console,Sys.Modify,Pool.Allocate,Datastore.AllocateSpace,Datastore.Audit,SDN.Use\""
+2025-08-25 11:36:11,995 - __main__ - ERROR - Command failed: ssh root@10.10.1.21 "pveum role add PackerRole -privs \"VM.Allocate,VM.Clone,VM.Config.CDROM,VM.Config.CPU,VM.Config.Cloudinit,VM.Config.Disk,VM.Config.HWType,VM.Config.Memory,VM.Config.Network,VM.Config.Options,VM.Audit,VM.PowerMgmt,VM.Console,Sys.Modify,Pool.Allocate,Datastore.AllocateSpace,Datastore.Audit,SDN.Use\""
+2025-08-25 11:36:11,995 - __main__ - ERROR - Error: Warning: Permanently added '10.10.1.21' (ED25519) to the list of known hosts.
+create role failed: role 'PackerRole' already exists
+
+2025-08-25 11:36:11,996 - __main__ - INFO - Executing: ssh root@10.10.1.21 "pveum role add TerraformRole -privs \"VM.Allocate,VM.Clone,VM.Config.CDROM,VM.Config.CPU,VM.Config.Cloudinit,VM.Config.Disk,VM.Config.HWType,VM.Config.Memory,VM.Config.Network,VM.Config.Options,VM.Audit,VM.PowerMgmt,VM.Migrate,Sys.Modify,Sys.Audit,Pool.Allocate,Pool.Audit,Datastore.AllocateSpace,Datastore.Audit,SDN.Use\""
+2025-08-25 11:36:13,001 - __main__ - ERROR - Command failed: ssh root@10.10.1.21 "pveum role add TerraformRole -privs \"VM.Allocate,VM.Clone,VM.Config.CDROM,VM.Config.CPU,VM.Config.Cloudinit,VM.Config.Disk,VM.Config.HWType,VM.Config.Memory,VM.Config.Network,VM.Config.Options,VM.Audit,VM.PowerMgmt,VM.Migrate,Sys.Modify,Sys.Audit,Pool.Allocate,Pool.Audit,Datastore.AllocateSpace,Datastore.Audit,SDN.Use\""
+2025-08-25 11:36:13,001 - __main__ - ERROR - Error: Warning: Permanently added '10.10.1.21' (ED25519) to the list of known hosts.
+create role failed: role 'TerraformRole' already exists
+
+2025-08-25 11:36:13,001 - __main__ - INFO - Executing: ssh root@10.10.1.21 "pveum aclmod / -user packer@pam -role PackerRole"
+2025-08-25 11:36:14,013 - __main__ - INFO - Executing: ssh root@10.10.1.21 "pveum aclmod / -user terraform@pam -role TerraformRole"
+2025-08-25 11:36:15,018 - __main__ - INFO - Executing: ssh root@10.10.1.21 "pveum user token add packer@pam packer --privsep=0"
+2025-08-25 11:36:16,018 - __main__ - ERROR - Command failed: ssh root@10.10.1.21 "pveum user token add packer@pam packer --privsep=0"
+2025-08-25 11:36:16,018 - __main__ - ERROR - Error: Warning: Permanently added '10.10.1.21' (ED25519) to the list of known hosts.
+400 Parameter verification failed.
+tokenid: Token already exists.
+pveum user token add <userid> <tokenid> [OPTIONS] [FORMAT_OPTIONS]
+
+2025-08-25 11:36:16,018 - __main__ - INFO - Executing: ssh root@10.10.1.21 "pveum user token add terraform@pam terraform --privsep=0"
+2025-08-25 11:36:17,030 - __main__ - ERROR - Command failed: ssh root@10.10.1.21 "pveum user token add terraform@pam terraform --privsep=0"
+2025-08-25 11:36:17,030 - __main__ - ERROR - Error: Warning: Permanently added '10.10.1.21' (ED25519) to the list of known hosts.
+400 Parameter verification failed.
+tokenid: Token already exists.
+pveum user token add <userid> <tokenid> [OPTIONS] [FORMAT_OPTIONS]
+
+2025-08-25 11:36:17,030 - __main__ - ERROR - ❌ proxmox_setup_setup_proxmox_users_and_permissions failed after 8.06s
+2025-08-25 11:36:17,030 - __main__ - ERROR - 💥 Deployment failed at proxmox_setup_setup_proxmox_users_and_permissions
+2025-08-25 11:37:13,973 - __main__ - INFO - 🚀 Starting Kubernetes-on-Proxmox deployment
+2025-08-25 11:37:13,973 - __main__ - INFO - Starting task: prerequisites_check_prerequisites
+2025-08-25 11:37:13,974 - __main__ - INFO - Executing: which packer
+2025-08-25 11:37:13,976 - __main__ - INFO - Executing: which terraform
+2025-08-25 11:37:13,979 - __main__ - INFO - Executing: ansible-playbook --version
+2025-08-25 11:37:14,411 - __main__ - INFO - Executing: sudo apt update && sudo apt install -y python3-kubernetes
+2025-08-25 11:37:18,405 - __main__ - INFO - Using existing sysadmin_automation_key for authentication
+2025-08-25 11:37:18,405 - __main__ - INFO - ✅ prerequisites_check_prerequisites completed in 4.43s
+2025-08-25 11:37:18,406 - __main__ - INFO - Starting task: proxmox_setup_setup_proxmox_users_and_permissions
+2025-08-25 11:37:18,406 - __main__ - INFO - Executing: ssh root@10.10.1.21 "pveum user add packer@pam --comment 'Packer automation user'"
+2025-08-25 11:37:19,426 - __main__ - ERROR - Command failed: ssh root@10.10.1.21 "pveum user add packer@pam --comment 'Packer automation user'"
+2025-08-25 11:37:19,426 - __main__ - ERROR - Error: Warning: Permanently added '10.10.1.21' (ED25519) to the list of known hosts.
+create user failed: user 'packer@pam' already exists
+
+2025-08-25 11:37:19,426 - __main__ - INFO - User packer@pam already exists - skipping
+2025-08-25 11:37:19,426 - __main__ - INFO - Executing: ssh root@10.10.1.21 "pveum user add terraform@pam --comment 'Terraform automation user'"
+2025-08-25 11:37:20,431 - __main__ - ERROR - Command failed: ssh root@10.10.1.21 "pveum user add terraform@pam --comment 'Terraform automation user'"
+2025-08-25 11:37:20,431 - __main__ - ERROR - Error: Warning: Permanently added '10.10.1.21' (ED25519) to the list of known hosts.
+create user failed: user 'terraform@pam' already exists
+
+2025-08-25 11:37:20,431 - __main__ - INFO - User terraform@pam already exists - skipping
+2025-08-25 11:37:20,431 - __main__ - INFO - Executing: ssh root@10.10.1.21 "pveum role add PackerRole -privs \"VM.Allocate,VM.Clone,VM.Config.CDROM,VM.Config.CPU,VM.Config.Cloudinit,VM.Config.Disk,VM.Config.HWType,VM.Config.Memory,VM.Config.Network,VM.Config.Options,VM.Audit,VM.PowerMgmt,VM.Console,Sys.Modify,Pool.Allocate,Datastore.AllocateSpace,Datastore.Audit,SDN.Use\""
+2025-08-25 11:37:21,442 - __main__ - ERROR - Command failed: ssh root@10.10.1.21 "pveum role add PackerRole -privs \"VM.Allocate,VM.Clone,VM.Config.CDROM,VM.Config.CPU,VM.Config.Cloudinit,VM.Config.Disk,VM.Config.HWType,VM.Config.Memory,VM.Config.Network,VM.Config.Options,VM.Audit,VM.PowerMgmt,VM.Console,Sys.Modify,Pool.Allocate,Datastore.AllocateSpace,Datastore.Audit,SDN.Use\""
+2025-08-25 11:37:21,442 - __main__ - ERROR - Error: Warning: Permanently added '10.10.1.21' (ED25519) to the list of known hosts.
+create role failed: role 'PackerRole' already exists
+
+2025-08-25 11:37:21,442 - __main__ - INFO - Role PackerRole already exists - skipping
+2025-08-25 11:37:21,442 - __main__ - INFO - Executing: ssh root@10.10.1.21 "pveum role add TerraformRole -privs \"VM.Allocate,VM.Clone,VM.Config.CDROM,VM.Config.CPU,VM.Config.Cloudinit,VM.Config.Disk,VM.Config.HWType,VM.Config.Memory,VM.Config.Network,VM.Config.Options,VM.Audit,VM.PowerMgmt,VM.Migrate,Sys.Modify,Sys.Audit,Pool.Allocate,Pool.Audit,Datastore.AllocateSpace,Datastore.Audit,SDN.Use\""
+2025-08-25 11:37:22,440 - __main__ - ERROR - Command failed: ssh root@10.10.1.21 "pveum role add TerraformRole -privs \"VM.Allocate,VM.Clone,VM.Config.CDROM,VM.Config.CPU,VM.Config.Cloudinit,VM.Config.Disk,VM.Config.HWType,VM.Config.Memory,VM.Config.Network,VM.Config.Options,VM.Audit,VM.PowerMgmt,VM.Migrate,Sys.Modify,Sys.Audit,Pool.Allocate,Pool.Audit,Datastore.AllocateSpace,Datastore.Audit,SDN.Use\""
+2025-08-25 11:37:22,440 - __main__ - ERROR - Error: Warning: Permanently added '10.10.1.21' (ED25519) to the list of known hosts.
+create role failed: role 'TerraformRole' already exists
+
+2025-08-25 11:37:22,440 - __main__ - INFO - Role TerraformRole already exists - skipping
+2025-08-25 11:37:22,440 - __main__ - INFO - Executing: ssh root@10.10.1.21 "pveum aclmod / -user packer@pam -role PackerRole"
+2025-08-25 11:37:23,448 - __main__ - INFO - Executing: ssh root@10.10.1.21 "pveum aclmod / -user terraform@pam -role TerraformRole"
+2025-08-25 11:37:24,453 - __main__ - INFO - Executing: ssh root@10.10.1.21 "pveum user token add packer@pam packer --privsep=0"
+2025-08-25 11:37:25,443 - __main__ - ERROR - Command failed: ssh root@10.10.1.21 "pveum user token add packer@pam packer --privsep=0"
+2025-08-25 11:37:25,444 - __main__ - ERROR - Error: Warning: Permanently added '10.10.1.21' (ED25519) to the list of known hosts.
+400 Parameter verification failed.
+tokenid: Token already exists.
+pveum user token add <userid> <tokenid> [OPTIONS] [FORMAT_OPTIONS]
+
+2025-08-25 11:37:25,444 - __main__ - INFO - packer token already exists - will use existing token
+2025-08-25 11:37:25,444 - __main__ - INFO - Executing: ssh root@10.10.1.21 "pveum user token add terraform@pam terraform --privsep=0"
+2025-08-25 11:37:26,456 - __main__ - ERROR - Command failed: ssh root@10.10.1.21 "pveum user token add terraform@pam terraform --privsep=0"
+2025-08-25 11:37:26,456 - __main__ - ERROR - Error: Warning: Permanently added '10.10.1.21' (ED25519) to the list of known hosts.
+400 Parameter verification failed.
+tokenid: Token already exists.
+pveum user token add <userid> <tokenid> [OPTIONS] [FORMAT_OPTIONS]
+
+2025-08-25 11:37:26,456 - __main__ - INFO - terraform token already exists - will use existing token
+2025-08-25 11:37:26,456 - __main__ - INFO - Proxmox users, roles, and tokens are configured
+2025-08-25 11:37:26,456 - __main__ - INFO - ✅ proxmox_setup_setup_proxmox_users_and_permissions completed in 8.05s
+2025-08-25 11:37:26,456 - __main__ - INFO - Starting task: proxmox_setup_download_ubuntu_iso
+2025-08-25 11:37:26,456 - __main__ - INFO - Executing: ssh root@10.10.1.21 "ls -la /var/lib/vz/template/iso/ubuntu-24.04.1-live-server-amd64.iso"
+2025-08-25 11:37:26,791 - __main__ - INFO - Ubuntu ISO already exists
+2025-08-25 11:37:26,791 - __main__ - INFO - ✅ proxmox_setup_download_ubuntu_iso completed in 0.33s
+2025-08-25 11:37:26,791 - __main__ - INFO - Starting task: template_build_create_cloud_init_base_template
+2025-08-25 11:37:26,791 - __main__ - INFO - Executing: ssh root@10.10.1.21 "qm config 9001"
+2025-08-25 11:37:28,178 - __main__ - INFO - Base cloud template 9001 already exists
+2025-08-25 11:37:28,178 - __main__ - INFO - ✅ template_build_create_cloud_init_base_template completed in 1.39s
+2025-08-25 11:37:28,178 - __main__ - INFO - Starting task: template_build_configure_proxmox_firewall
+2025-08-25 11:37:28,179 - __main__ - INFO - Configuring Proxmox firewall for automation access...
+2025-08-25 11:37:28,179 - __main__ - INFO - Executing: ssh root@10.10.1.21 "pve-firewall localnet && pvesh create /cluster/firewall/groups --group automation-access --comment 'Allow access from management server' && pvesh create /cluster/firewall/groups/automation-access --action ACCEPT --type in --source 10.10.1.1 --proto tcp --dport 22 --comment 'SSH from mgmt' && pvesh create /cluster/firewall/groups/automation-access --action ACCEPT --type in --source 10.10.1.1 --proto tcp --dport 8006 --comment 'API from mgmt' && for node in node1 node2 node3 node4; do pvesh set /nodes/$node/firewall/options --enable 1 && pvesh create /nodes/$node/firewall/rules --action GROUP --group automation-access --type in; done && pve-firewall start"
+2025-08-25 11:37:38,375 - __main__ - ERROR - Command failed: ssh root@10.10.1.21 "pve-firewall localnet && pvesh create /cluster/firewall/groups --group automation-access --comment 'Allow access from management server' && pvesh create /cluster/firewall/groups/automation-access --action ACCEPT --type in --source 10.10.1.1 --proto tcp --dport 22 --comment 'SSH from mgmt' && pvesh create /cluster/firewall/groups/automation-access --action ACCEPT --type in --source 10.10.1.1 --proto tcp --dport 8006 --comment 'API from mgmt' && for node in node1 node2 node3 node4; do pvesh set /nodes/$node/firewall/options --enable 1 && pvesh create /nodes/$node/firewall/rules --action GROUP --group automation-access --type in; done && pve-firewall start"
+2025-08-25 11:37:38,375 - __main__ - ERROR - Error: Warning: Permanently added '10.10.1.21' (ED25519) to the list of known hosts.
+No 'set' handler defined for '/nodes//firewall/options'
+No 'set' handler defined for '/nodes//firewall/options'
+No 'set' handler defined for '/nodes//firewall/options'
+No 'set' handler defined for '/nodes//firewall/options'
+
+2025-08-25 11:37:38,375 - __main__ - WARNING - Firewall configuration may have issues: Warning: Permanently added '10.10.1.21' (ED25519) to the list of known hosts.
+No 'set' handler defined for '/nodes//firewall/options'
+No 'set' handler defined for '/nodes//firewall/options'
+No 'set' handler defined for '/nodes//firewall/options'
+No 'set' handler defined for '/nodes//firewall/options'
+
+2025-08-25 11:37:38,375 - __main__ - INFO - Firewall is currently disabled for testing - will need manual configuration
+2025-08-25 11:37:38,375 - __main__ - INFO - ✅ template_build_configure_proxmox_firewall completed in 10.20s
+2025-08-25 11:37:38,375 - __main__ - INFO - Starting task: template_build_create_packer_config
+2025-08-25 11:37:38,376 - __main__ - INFO - ✅ template_build_create_packer_config completed in 0.00s
+2025-08-25 11:37:38,376 - __main__ - INFO - Starting task: template_build_build_template
+2025-08-25 11:37:38,376 - __main__ - INFO - Executing: ssh root@10.10.1.21 "qm stop 9000 && qm destroy 9000"
+2025-08-25 11:37:39,797 - __main__ - ERROR - Command failed: ssh root@10.10.1.21 "qm stop 9000 && qm destroy 9000"
+2025-08-25 11:37:39,797 - __main__ - ERROR - Error: Warning: Permanently added '10.10.1.21' (ED25519) to the list of known hosts.
+unable to find configuration file for VM 9000 on node 'node1'
+
+2025-08-25 11:37:39,797 - __main__ - INFO - Executing: packer init ubuntu-24.04-k8s-cloud.pkr.hcl
+2025-08-25 11:37:40,872 - __main__ - ERROR - Command failed: packer init ubuntu-24.04-k8s-cloud.pkr.hcl
+2025-08-25 11:37:40,872 - __main__ - ERROR - Error: 
+2025-08-25 11:37:40,873 - __main__ - ERROR - ❌ template_build_build_template failed after 2.50s
+2025-08-25 11:37:40,873 - __main__ - ERROR - 💥 Deployment failed at template_build_build_template

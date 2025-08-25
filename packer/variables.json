@@ -1,0 +1,7 @@
+{
+  "proxmox_url": "https://10.10.1.21:8006/api2/json",
+  "proxmox_token": "7b2a3da7-bd30-4772-a6b0-874aa9b2f3a5",
+  "proxmox_user": "packer@pam!packer",
+  "template_name": "ubuntu-24.04-k8s-template",
+  "template_description": "Ubuntu 24.04 LTS with Kubernetes components pre-installed"
+}

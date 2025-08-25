@@ -1,0 +1,73 @@
+terraform {
+  required_providers {
+    proxmox = {
+      source  = "Telmate/proxmox"
+      version = "~> 3.0.1-rc4"  # Latest version compatible with Proxmox 8
+    }
+  }
+}
+
+# Use username/password for reliability (per research findings)
+provider "proxmox" {
+  pm_api_url          = "https://10.10.1.21:8006/api2/json"
+  pm_user             = "root@pam"
+  pm_password         = "your-root-password-here"  # More reliable than API tokens
+  pm_tls_insecure     = true
+  pm_parallel         = 1
+  pm_timeout          = 600
+  pm_debug            = true
+  pm_log_enable       = true
+  pm_log_file         = "terraform-plugin-proxmox.log"
+}
+
+# Simple VM clone - no cloud-init complexity
+resource "proxmox_vm_qemu" "k8s_control_test" {
+  name        = "k8s-control-test"
+  desc        = "Test K8s control plane - simple approach"
+  vmid        = 151
+  target_node = "node1"
+  
+  # Clone from golden template
+  clone      = "ubuntu-2404-golden-template"
+  full_clone = true
+  
+  # Basic resources
+  cores   = 4
+  memory  = 4096
+  sockets = 1
+  
+  # Network - DHCP (simple)
+  network {
+    bridge = "vmbr0"
+    model  = "virtio"
+  }
+  
+  # Use template's existing disk
+  disk {
+    slot     = 0
+    size     = "20G"
+    type     = "virtio"
+    storage  = "rbd"
+  }
+  
+  # Skip complex configurations
+  onboot     = false
+  agent      = 1  # Enable for IP detection
+  os_type    = "cloud-init"
+  
+  # Let it boot with template defaults
+  lifecycle {
+    ignore_changes = [
+      network,
+      disk,
+    ]
+  }
+}
+
+output "vm_info" {
+  value = {
+    name    = proxmox_vm_qemu.k8s_control_test.name
+    vmid    = proxmox_vm_qemu.k8s_control_test.vmid
+    node    = proxmox_vm_qemu.k8s_control_test.target_node
+  }
+}

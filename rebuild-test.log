@@ -1,0 +1,89 @@
+[0;34m[2025-08-25 13:50:01][0m === Complete Rebuild Test - Validating Automation ===
+[0;34m[2025-08-25 13:50:01][0m This ensures all manual steps have been captured in automation
+[0;34m[2025-08-25 13:50:01][0m Testing prerequisites for complete rebuild...
+[0;34m[2025-08-25 13:50:01][0m 1. Checking required files exist...
+[0;32m[SUCCESS][0m ✓ Found: proxmox-initial-setup.sh
+[0;32m[SUCCESS][0m ✓ Found: complete-rebuild-automation.py
+[0;32m[SUCCESS][0m ✓ Found: ubuntu-golden-final.pkr.hcl
+[0;32m[SUCCESS][0m ✓ Found: production-ready.tf
+[0;32m[SUCCESS][0m ✓ Found: k8s_proxmox_deployer.py
+[0;32m[SUCCESS][0m All required files present
+[0;34m[2025-08-25 13:50:01][0m 2. Checking required tools...
+[0;32m[SUCCESS][0m ✓ packer: Packer v1.10.0
+version unknown
+[0;32m[SUCCESS][0m ✓ terraform: Terraform v1.7.0
+[0;32m[SUCCESS][0m ✓ python3: Python 3.12.3
+[0;32m[SUCCESS][0m ✓ curl: curl 8.5.0 (x86_64-pc-linux-gnu) libcurl/8.5.0 OpenSSL/3.0.13 zlib/1.3 brotli/1.1.0 zstd/1.5.5 libidn2/2.3.7 libpsl/0.21.2 (+libidn2/2.3.7) libssh/0.10.6/openssl/zlib nghttp2/1.59.0 librtmp/2.3 OpenLDAP/2.6.7
+[0;32m[SUCCESS][0m ✓ ssh: version unknown
+[0;32m[SUCCESS][0m ✓ nc: version unknown
+[0;32m[SUCCESS][0m ✓ ping: version unknown
+[0;32m[SUCCESS][0m All required tools available
+[0;34m[2025-08-25 13:50:02][0m 3. Checking file permissions...
+[0;32m[SUCCESS][0m ✓ SSH private key exists
+[0;32m[SUCCESS][0m ✓ SSH public key exists
+[0;32m[SUCCESS][0m File permissions configured
+[0;34m[2025-08-25 13:50:02][0m 4. Running dry-run validation...
+[0;34m[2025-08-25 13:50:02][0m Testing Python script syntax...
+[0;32m[SUCCESS][0m ✓ Python script syntax valid
+[0;32m[SUCCESS][0m ✓ Main deployment script syntax valid
+[0;34m[2025-08-25 13:50:02][0m Testing Packer configuration syntax...
+[0;32m[SUCCESS][0m ✓ Packer configuration valid
+[0;34m[2025-08-25 13:50:03][0m Testing Terraform configuration syntax...
+[0;31m[ERROR][0m ✗ Terraform configuration has errors
+[0;34m[2025-08-25 13:51:26][0m === Complete Rebuild Test - Validating Automation ===
+[0;34m[2025-08-25 13:51:26][0m This ensures all manual steps have been captured in automation
+[0;34m[2025-08-25 13:51:26][0m Testing prerequisites for complete rebuild...
+[0;34m[2025-08-25 13:51:26][0m 1. Checking required files exist...
+[0;32m[SUCCESS][0m ✓ Found: proxmox-initial-setup.sh
+[0;32m[SUCCESS][0m ✓ Found: complete-rebuild-automation.py
+[0;32m[SUCCESS][0m ✓ Found: ubuntu-golden-final.pkr.hcl
+[0;31m[ERROR][0m ✗ Missing: /home/sysadmin/claude/kubernetes-cluster/terraform/production-ready.tf
+[0;34m[2025-08-25 13:51:40][0m === Complete Rebuild Test - Validating Automation ===
+[0;34m[2025-08-25 13:51:40][0m This ensures all manual steps have been captured in automation
+[0;34m[2025-08-25 13:51:40][0m Testing prerequisites for complete rebuild...
+[0;34m[2025-08-25 13:51:40][0m 1. Checking required files exist...
+[0;32m[SUCCESS][0m ✓ Found: proxmox-initial-setup.sh
+[0;32m[SUCCESS][0m ✓ Found: complete-rebuild-automation.py
+[0;32m[SUCCESS][0m ✓ Found: ubuntu-golden-final.pkr.hcl
+[0;32m[SUCCESS][0m ✓ Found: main.tf
+[0;32m[SUCCESS][0m ✓ Found: k8s_proxmox_deployer.py
+[0;32m[SUCCESS][0m All required files present
+[0;34m[2025-08-25 13:51:40][0m 2. Checking required tools...
+[0;32m[SUCCESS][0m ✓ packer: Packer v1.10.0
+[0;32m[SUCCESS][0m ✓ terraform: Terraform v1.7.0
+[0;32m[SUCCESS][0m ✓ python3: Python 3.12.3
+[0;32m[SUCCESS][0m ✓ curl: curl 8.5.0 (x86_64-pc-linux-gnu) libcurl/8.5.0 OpenSSL/3.0.13 zlib/1.3 brotli/1.1.0 zstd/1.5.5 libidn2/2.3.7 libpsl/0.21.2 (+libidn2/2.3.7) libssh/0.10.6/openssl/zlib nghttp2/1.59.0 librtmp/2.3 OpenLDAP/2.6.7
+[0;32m[SUCCESS][0m ✓ ssh: version unknown
+[0;32m[SUCCESS][0m ✓ nc: version unknown
+[0;32m[SUCCESS][0m ✓ ping: version unknown
+[0;32m[SUCCESS][0m All required tools available
+[0;34m[2025-08-25 13:51:41][0m 3. Checking file permissions...
+[0;32m[SUCCESS][0m ✓ SSH private key exists
+[0;32m[SUCCESS][0m ✓ SSH public key exists
+[0;32m[SUCCESS][0m File permissions configured
+[0;34m[2025-08-25 13:51:41][0m 4. Running dry-run validation...
+[0;34m[2025-08-25 13:51:41][0m Testing Python script syntax...
+[0;32m[SUCCESS][0m ✓ Python script syntax valid
+[0;32m[SUCCESS][0m ✓ Main deployment script syntax valid
+[0;34m[2025-08-25 13:51:41][0m Testing Packer configuration syntax...
+[0;32m[SUCCESS][0m ✓ Packer configuration valid
+[0;34m[2025-08-25 13:51:43][0m Testing Terraform configuration syntax...
+[0;32m[SUCCESS][0m ✓ Terraform configuration valid
+[0;32m[SUCCESS][0m Dry-run validation completed
+[0;34m[2025-08-25 13:51:44][0m 5. Creating backup and recovery plan...
+[0;32m[SUCCESS][0m Backup plan created: REBUILD_IMPACT.md
+[0;34m[2025-08-25 13:51:44][0m 6. Generating execution report...
+[0;32m[SUCCESS][0m Execution report created: EXECUTION_REPORT.md
+[0;34m[2025-08-25 13:51:44][0m 
+[0;34m[2025-08-25 13:51:44][0m === Test Summary ===
+[0;32m[SUCCESS][0m 🎉 All tests PASSED! Ready for complete rebuild.
+[0;34m[2025-08-25 13:51:44][0m 
+[0;34m[2025-08-25 13:51:44][0m Next steps:
+[0;34m[2025-08-25 13:51:44][0m 1. Review: /home/sysadmin/claude/kubernetes-cluster/REBUILD_IMPACT.md
+[0;34m[2025-08-25 13:51:44][0m 2. Review: /home/sysadmin/claude/kubernetes-cluster/EXECUTION_REPORT.md
+[0;34m[2025-08-25 13:51:44][0m 3. Execute: ./complete-rebuild-automation.py --fresh-install
+[0;34m[2025-08-25 13:51:44][0m 
+[0;34m[2025-08-25 13:51:44][0m For safety, you can also run validation only:
+[0;34m[2025-08-25 13:51:44][0m    ./complete-rebuild-automation.py --validate-only
+[0;34m[2025-08-25 13:51:44][0m 
+[0;32m[SUCCESS][0m Complete rebuild automation is ready! 🚀
