@@ -1,0 +1,8 @@
+---
+- name: disable swap
+  command: swapoff -a
+  
+- name: restart containerd
+  systemd:
+    name: containerd
+    state: restarted

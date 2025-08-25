@@ -1,0 +1,30 @@
+#cloud-config
+autoinstall:
+  version: 1
+  locale: en_US.UTF-8
+  keyboard:
+    layout: us
+  network:
+    network:
+      version: 2
+      ethernets:
+        ens18:
+          dhcp4: true
+  storage:
+    layout:
+      name: direct
+  identity:
+    hostname: packer-ubuntu-k8s
+    username: ubuntu
+    password: '$6$rounds=4096$salted$hash.generated.password'
+  ssh:
+    install-server: true
+    allow-pw: true
+  packages:
+    - qemu-guest-agent
+    - cloud-init
+  user-data:
+    disable_root: false
+  late-commands:
+    - 'echo "ubuntu ALL=(ALL) NOPASSWD:ALL" > /target/etc/sudoers.d/ubuntu'
+    - 'chmod 440 /target/etc/sudoers.d/ubuntu'

@@ -1,0 +1,87 @@
+---
+- name: Initialize Kubernetes control plane
+  command: >
+    kubeadm init 
+    --control-plane-endpoint={{ control_plane_vip }}:6443 
+    --upload-certs 
+    --pod-network-cidr={{ pod_network_cidr }} 
+    --service-cidr={{ service_subnet }}
+    --v=2
+  register: kubeadm_init
+  failed_when: kubeadm_init.rc != 0 and "already exists" not in kubeadm_init.stderr
+  changed_when: kubeadm_init.rc == 0
+
+- name: Extract join commands from kubeadm init output
+  set_fact:
+    kubeadm_join_control_plane: "{{ kubeadm_init.stdout | regex_search('kubeadm join.*--control-plane.*--certificate-key [a-f0-9]{64}', multiline=True) }}"
+    kubeadm_join_worker: "{{ kubeadm_init.stdout | regex_search('kubeadm join [0-9.:]+.*--token [a-z0-9.]{23} --discovery-token-ca-cert-hash sha256:[a-f0-9]{64}') }}"
+  when: kubeadm_init.changed
+
+- name: Store join commands for other nodes
+  set_fact:
+    control_plane_join_command: "{{ kubeadm_join_control_plane }}"
+    worker_join_command: "{{ kubeadm_join_worker }}"
+  delegate_to: "{{ item }}"
+  delegate_facts: true
+  with_items: "{{ groups['kubernetes'] }}"
+  when: kubeadm_init.changed
+
+- name: Create kubernetes config directory for ubuntu user
+  file:
+    path: /home/ubuntu/.kube
+    state: directory
+    owner: ubuntu
+    group: ubuntu
+    mode: '0755'
+
+- name: Copy kubernetes admin config for ubuntu user
+  copy:
+    src: /etc/kubernetes/admin.conf
+    dest: /home/ubuntu/.kube/config
+    owner: ubuntu
+    group: ubuntu
+    mode: '0600'
+    remote_src: yes
+
+- name: Create kubernetes config directory for root
+  file:
+    path: /root/.kube
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Copy kubernetes admin config for root
+  copy:
+    src: /etc/kubernetes/admin.conf
+    dest: /root/.kube/config
+    owner: root
+    group: root
+    mode: '0600'
+    remote_src: yes
+
+- name: Wait for control plane to be ready
+  wait_for:
+    port: 6443
+    host: "{{ control_plane_vip }}"
+    delay: 10
+    timeout: 300
+
+- name: Install Calico CNI
+  shell: |
+    kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.28.0/manifests/calico.yaml
+  environment:
+    KUBECONFIG: /root/.kube/config
+  register: calico_install
+  until: calico_install.rc == 0
+  retries: 5
+  delay: 30
+
+- name: Wait for Calico to be ready
+  shell: kubectl get pods -n kube-system -l k8s-app=calico-node --no-headers | grep -v Running | wc -l
+  environment:
+    KUBECONFIG: /root/.kube/config
+  register: calico_pods_not_ready
+  until: calico_pods_not_ready.stdout == "0"
+  retries: 30
+  delay: 10

@@ -1,0 +1,69 @@
+---
+# Loki Stack for centralized logging
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: logging
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: loki-stack
+  namespace: logging
+spec:
+  project: default
+  source:
+    repoURL: https://grafana.github.io/helm-charts
+    targetRevision: 2.10.2
+    chart: loki-stack
+    helm:
+      values: |
+        loki:
+          enabled: true
+          persistence:
+            enabled: true
+            storageClassName: proxmox-rbd
+            size: 20Gi
+          config:
+            limits_config:
+              retention_period: 168h  # 7 days
+            table_manager:
+              retention_deletes_enabled: true
+              retention_period: 168h
+              
+        promtail:
+          enabled: true
+          config:
+            clients:
+              - url: http://loki:3100/loki/api/v1/push
+            scrapeConfigs: |
+              - job_name: containers
+                static_configs:
+                  - targets:
+                      - localhost
+                    labels:
+                      job: containerlogs
+                      __path__: /var/log/containers/*log
+              - job_name: pods
+                static_configs:
+                  - targets:
+                      - localhost
+                    labels:
+                      job: podlogs
+                      __path__: /var/log/pods/*/*/*.log
+                      
+        grafana:
+          enabled: false  # Use Grafana from prometheus-stack
+          
+        fluent-bit:
+          enabled: false
+          
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: logging
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true

@@ -1,0 +1,18 @@
+---
+- name: Check if node is already part of cluster
+  stat:
+    path: /etc/kubernetes/kubelet.conf
+  register: kubelet_conf
+
+- name: Join worker node to cluster
+  shell: "{{ hostvars[groups['control_plane'][0]]['worker_join_command'] }}"
+  register: join_result
+  failed_when: join_result.rc != 0 and "already exists" not in join_result.stderr
+  when: not kubelet_conf.stat.exists
+
+- name: Label worker nodes
+  shell: kubectl label node {{ inventory_hostname }} node-role.kubernetes.io/worker=worker --overwrite
+  environment:
+    KUBECONFIG: /root/.kube/config
+  delegate_to: "{{ groups['control_plane'][0] }}"
+  run_once: false

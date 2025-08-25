@@ -1,0 +1,85 @@
+---
+# Proxmox Exporter for monitoring the hypervisor layer
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: proxmox-exporter
+  namespace: monitoring
+  labels:
+    app: proxmox-exporter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: proxmox-exporter
+  template:
+    metadata:
+      labels:
+        app: proxmox-exporter
+    spec:
+      containers:
+      - name: proxmox-exporter
+        image: prompve/prometheus-pve-exporter:latest
+        ports:
+        - containerPort: 9221
+          name: metrics
+        env:
+        - name: PVE_USER
+          value: "monitoring@pam!monitoring"
+        - name: PVE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: proxmox-exporter-secret
+              key: password
+        - name: PVE_VERIFY_SSL
+          value: "false"
+        args:
+        - "10.10.1.21"
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: proxmox-exporter-secret
+  namespace: monitoring
+type: Opaque
+stringData:
+  password: "your-monitoring-token-here"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: proxmox-exporter
+  namespace: monitoring
+  labels:
+    app: proxmox-exporter
+spec:
+  ports:
+  - port: 9221
+    targetPort: 9221
+    name: metrics
+  selector:
+    app: proxmox-exporter
+---
+# ServiceMonitor to tell Prometheus to scrape this exporter
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: proxmox-exporter
+  namespace: monitoring
+  labels:
+    app: proxmox-exporter
+spec:
+  selector:
+    matchLabels:
+      app: proxmox-exporter
+  endpoints:
+  - port: metrics
+    interval: 30s
+    path: /pve

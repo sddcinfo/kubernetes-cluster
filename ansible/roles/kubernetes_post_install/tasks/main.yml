@@ -1,0 +1,128 @@
+---
+- name: Install Helm
+  shell: |
+    curl https://get.helm.sh/helm-v3.14.0-linux-amd64.tar.gz | tar -xzO linux-amd64/helm > /usr/local/bin/helm
+    chmod +x /usr/local/bin/helm
+  args:
+    creates: /usr/local/bin/helm
+
+- name: Add MetalLB Helm repository
+  kubernetes.core.helm_repository:
+    name: metallb
+    repo_url: https://metallb.github.io/metallb
+
+- name: Install MetalLB
+  kubernetes.core.helm:
+    name: metallb
+    chart_ref: metallb/metallb
+    release_namespace: metallb-system
+    create_namespace: true
+    state: present
+    kubeconfig: /root/.kube/config
+
+- name: Wait for MetalLB to be ready
+  shell: kubectl get pods -n metallb-system --no-headers | grep -v Running | wc -l
+  environment:
+    KUBECONFIG: /root/.kube/config
+  register: metallb_pods_not_ready
+  until: metallb_pods_not_ready.stdout == "0"
+  retries: 30
+  delay: 10
+
+- name: Configure MetalLB IP Address Pool
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: /root/.kube/config
+    definition:
+      apiVersion: metallb.io/v1beta1
+      kind: IPAddressPool
+      metadata:
+        name: default-pool
+        namespace: metallb-system
+      spec:
+        addresses:
+        - "{{ metallb_pool_start }}-{{ metallb_pool_end }}"
+
+- name: Configure MetalLB L2 Advertisement
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: /root/.kube/config
+    definition:
+      apiVersion: metallb.io/v1beta1
+      kind: L2Advertisement
+      metadata:
+        name: default
+        namespace: metallb-system
+      spec:
+        ipAddressPools:
+        - default-pool
+
+- name: Install Proxmox Cloud Controller Manager
+  shell: |
+    kubectl apply -f https://raw.githubusercontent.com/sergelogvinov/proxmox-cloud-controller-manager/main/docs/deploy/cloud-controller-manager.yaml
+  environment:
+    KUBECONFIG: /root/.kube/config
+
+- name: Create Proxmox CCM secret
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: /root/.kube/config
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: proxmox-cloud-controller-manager
+        namespace: kube-system
+      type: Opaque
+      stringData:
+        config.yaml: |
+          clusters:
+          - url: https://10.10.1.21:8006/api2/json
+            insecure: true
+            token_id: "terraform@pam!terraform"
+            token_secret: "your-token-here"
+            region: sddc-cluster
+
+- name: Install Proxmox CSI Plugin
+  shell: |
+    kubectl apply -f https://raw.githubusercontent.com/sergelogvinov/proxmox-csi-plugin/main/docs/deploy/proxmox-csi-plugin.yaml
+  environment:
+    KUBECONFIG: /root/.kube/config
+
+- name: Create Proxmox CSI secret
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: /root/.kube/config
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: proxmox-csi-plugin
+        namespace: csi-proxmox
+      type: Opaque
+      stringData:
+        config.yaml: |
+          clusters:
+          - url: https://10.10.1.21:8006/api2/json
+            insecure: true
+            token_id: "terraform@pam!terraform"
+            token_secret: "your-token-here"
+            region: sddc-cluster
+
+- name: Create Proxmox StorageClass
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: /root/.kube/config
+    definition:
+      apiVersion: storage.k8s.io/v1
+      kind: StorageClass
+      metadata:
+        name: proxmox-rbd
+        annotations:
+          storageclass.kubernetes.io/is-default-class: "true"
+      provisioner: csi.proxmox.sinextra.dev
+      parameters:
+        storage: rbd
+        csi.storage.k8s.io/fstype: ext4
+      allowVolumeExpansion: true
+      volumeBindingMode: WaitForFirstConsumer
