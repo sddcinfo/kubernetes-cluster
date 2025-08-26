@@ -105,6 +105,16 @@ cd scripts
 python3 deploy-cluster.py deploy
 ```
 
+### Current Status
+
+**Phase 1 ✅ COMPLETED** - Environment validation with RBD storage support  
+**Phase 2 ✅ COMPLETED** - Ubuntu 24.04 golden image with EFI boot and qemu-guest-agent  
+**Phase 3 🔄 READY** - Infrastructure provisioning with OpenTofu  
+**Phase 4 🔄 READY** - Kubernetes bootstrap with kubeadm  
+**Phase 5 🔄 READY** - Platform services deployment  
+
+Working golden template: `ubuntu-2404-golden` (VM ID: 9001) on Proxmox
+
 ### Individual Phase Execution
 
 For granular control or troubleshooting:
@@ -112,9 +122,15 @@ For granular control or troubleshooting:
 ```bash
 cd scripts
 
-# Run individual phases
+# Phase 1: Environment validation
 python3 01-validate-environment.py
-./02-build-golden-image.sh
+
+# Phase 2: Golden image creation (includes cloud image preparation)
+./prepare-cloud-image.sh      # Prepare Ubuntu cloud image with qemu-guest-agent
+./02-build-golden-image.sh     # Create base template for Packer
+packer build ../packer/ubuntu-golden.pkr.hcl  # Build golden template
+
+# Phase 3-5: Infrastructure and Kubernetes deployment
 ./03-provision-infrastructure.sh  
 ./04-bootstrap-kubernetes.sh
 ./05-deploy-platform-services.sh

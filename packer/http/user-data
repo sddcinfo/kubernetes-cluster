@@ -13,12 +13,46 @@ autoinstall:
       ethernets:
         ens18:
           dhcp4: true
+          dhcp6: false
           dhcp-identifier: mac
+          optional: true
           nameservers:
             addresses: [10.10.1.1, 8.8.8.8]
   storage:
     layout:
       name: direct
+    config:
+      - type: disk
+        id: disk0
+        ptable: gpt
+        match:
+          size: largest
+      - type: partition
+        id: efi-partition
+        device: disk0
+        size: 512M
+        flag: boot
+        grub_device: true
+      - type: format
+        id: efi-format
+        volume: efi-partition
+        fstype: fat32
+      - type: partition
+        id: root-partition
+        device: disk0
+        size: -1
+      - type: format
+        id: root-format
+        volume: root-partition
+        fstype: ext4
+      - type: mount
+        id: mount-root
+        device: root-format
+        path: /
+      - type: mount
+        id: mount-efi
+        device: efi-format
+        path: /boot/efi
   identity:
     hostname: ubuntu-vanilla-golden
     username: sysadmin
@@ -46,3 +80,6 @@ autoinstall:
     - chmod 440 /target/etc/sudoers.d/sysadmin
     - curtin in-target --target=/target -- systemctl enable qemu-guest-agent
     - curtin in-target --target=/target -- systemctl enable ssh
+    - curtin in-target --target=/target -- apt-get install -y grub-efi-amd64
+    - curtin in-target --target=/target -- grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=ubuntu --recheck
+    - curtin in-target --target=/target -- update-grub

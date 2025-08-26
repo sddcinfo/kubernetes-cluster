@@ -1,6 +1,6 @@
 #!/bin/bash
-# Phase 2: Build Golden Image with Packer
-# Creates the Kubernetes-ready VM template
+# Create Ubuntu Cloud Image Base VM for Packer Cloning
+# Uses properly prepared cloud image with qemu-guest-agent and sysadmin user
 
 set -euo pipefail
 
@@ -11,14 +11,10 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 # Configuration
-PACKER_DIR="../packer"
-TEMPLATE_NAME="ubuntu-2404-vanilla-golden"
-TEMPLATE_ID="9000"
-UBUNTU_VERSION="24.04.3"
-
-echo "============================================================"
-echo "PHASE 2: BUILD GOLDEN IMAGE"
-echo "============================================================"
+PROXMOX_HOST="10.10.1.21"
+BASE_VM_ID="9002"
+MODIFIED_IMAGE="ubuntu-24.04-cloudimg-amd64-modified.img"
+VM_NAME="ubuntu-cloud-base"
 
 # Function to print colored output
 log_info() {
@@ -33,204 +29,101 @@ log_warning() {
     echo -e "${YELLOW}[WARN]${NC} $1"
 }
 
-# Check if running from scripts directory
-if [ ! -f "02-build-golden-image.sh" ]; then
-    log_error "Please run this script from the scripts directory"
-    exit 1
-fi
+echo "============================================================"
+echo "CREATING UBUNTU CLOUD IMAGE BASE VM"
+echo "============================================================"
 
-# Create simplified Packer template for vanilla Ubuntu
-log_info "Using vanilla Ubuntu ${UBUNTU_VERSION} Packer template..."
-PACKER_TEMPLATE="${PACKER_DIR}/ubuntu-vanilla-golden.pkr.hcl"
-
-if [ ! -f "$PACKER_TEMPLATE" ]; then
-    log_error "Packer template not found: $PACKER_TEMPLATE"
-    exit 1
-fi
-
-log_info "Packer template found: $PACKER_TEMPLATE"
-packer {
-  required_plugins {
-    proxmox = {
-      version = ">= 1.1.8"
-      source  = "github.com/hashicorp/proxmox"
+# Check if VM already exists
+if ssh root@"$PROXMOX_HOST" "qm status $BASE_VM_ID" &>/dev/null; then
+    log_warning "Base VM $BASE_VM_ID already exists, removing..."
+    ssh root@"$PROXMOX_HOST" "qm stop $BASE_VM_ID || true && qm destroy $BASE_VM_ID --purge" || {
+        log_error "Failed to remove existing base VM"
+        exit 1
     }
-  }
-}
+    log_info "Existing base VM removed"
+fi
 
-variable "proxmox_host" {
-  type    = string
-  default = "10.10.1.21:8006"
-}
-
-variable "proxmox_token" {
-  type    = string
-  default = "packer@pam!packer=7b2a3da7-bd30-4772-a6b0-874aa9b2f3a5"
-}
-
-variable "template_name" {
-  type    = string
-  default = "ubuntu-k8s-golden"
-}
-
-variable "template_id" {
-  type    = string
-  default = "9000"
-}
-
-source "proxmox-clone" "ubuntu-k8s" {
-  proxmox_url              = "https://${var.proxmox_host}/api2/json"
-  api_token_id            = var.proxmox_token
-  insecure_skip_tls_verify = true
-  
-  clone_vm_id             = 9001  # Base cloud-init template
-  vm_name                 = var.template_name
-  vm_id                   = var.template_id
-  template_name           = var.template_name
-  template_description    = "Ubuntu 24.04 Kubernetes Golden Image"
-  
-  node                    = "hp4"
-  cores                   = 2
-  memory                  = 4096
-  
-  scsi_controller         = "virtio-scsi-single"
-  
-  network_adapters {
-    bridge   = "vmbr1"
-    model    = "virtio"
-    vlan_tag = ""
-  }
-  
-  cloud_init              = true
-  cloud_init_storage_pool = "rbd"
-  
-  ssh_username            = "ubuntu"
-  ssh_private_key_file    = "~/.ssh/id_rsa"
-  ssh_timeout             = "20m"
-  
-  unmount_iso             = true
-  task_timeout            = "10m"
-}
-
-build {
-  sources = ["source.proxmox-clone.ubuntu-k8s"]
-  
-  # Update system
-  provisioner "shell" {
-    inline = [
-      "sudo apt-get update",
-      "sudo DEBIAN_FRONTEND=noninteractive apt-get upgrade -y",
-      "sudo DEBIAN_FRONTEND=noninteractive apt-get dist-upgrade -y"
-    ]
-  }
-  
-  # Install Kubernetes prerequisites
-  provisioner "shell" {
-    inline = [
-      "# Disable swap",
-      "sudo swapoff -a",
-      "sudo sed -i '/ swap / s/^/#/' /etc/fstab",
-      
-      "# Install required packages",
-      "sudo DEBIAN_FRONTEND=noninteractive apt-get install -y apt-transport-https ca-certificates curl gpg",
-      
-      "# Add Kubernetes repository",
-      "curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.30/deb/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg",
-      "echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.30/deb/ /' | sudo tee /etc/apt/sources.list.d/kubernetes.list",
-      
-      "# Install containerd",
-      "sudo DEBIAN_FRONTEND=noninteractive apt-get update",
-      "sudo DEBIAN_FRONTEND=noninteractive apt-get install -y containerd",
-      
-      "# Configure containerd",
-      "sudo mkdir -p /etc/containerd",
-      "sudo containerd config default | sudo tee /etc/containerd/config.toml",
-      "sudo sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml",
-      "sudo systemctl restart containerd",
-      "sudo systemctl enable containerd",
-      
-      "# Install Kubernetes components",
-      "sudo DEBIAN_FRONTEND=noninteractive apt-get install -y kubelet kubeadm kubectl",
-      "sudo apt-mark hold kubelet kubeadm kubectl"
-    ]
-  }
-  
-  # Configure kernel modules and sysctl
-  provisioner "shell" {
-    inline = [
-      "# Load required kernel modules",
-      "cat <<EOF | sudo tee /etc/modules-load.d/k8s.conf",
-      "overlay",
-      "br_netfilter",
-      "EOF",
-      
-      "sudo modprobe overlay",
-      "sudo modprobe br_netfilter",
-      
-      "# Configure sysctl for Kubernetes",
-      "cat <<EOF | sudo tee /etc/sysctl.d/k8s.conf",
-      "net.bridge.bridge-nf-call-iptables  = 1",
-      "net.bridge.bridge-nf-call-ip6tables = 1",
-      "net.ipv4.ip_forward                 = 1",
-      "EOF",
-      
-      "sudo sysctl --system"
-    ]
-  }
-  
-  # Clean up
-  provisioner "shell" {
-    inline = [
-      "sudo apt-get autoremove -y",
-      "sudo apt-get clean",
-      "sudo cloud-init clean --logs --seed",
-      "sudo rm -rf /var/lib/cloud/instances/*",
-      "sudo truncate -s 0 /etc/machine-id",
-      "sudo rm -f /var/lib/dbus/machine-id",
-      "history -c"
-    ]
-  }
-}
-EOF
-
-# Validate Packer template
-log_info "Validating Packer template..."
-cd "$PACKER_DIR"
-if packer validate ubuntu-k8s-golden.pkr.hcl; then
-    log_info "Packer template is valid"
-else
-    log_error "Packer template validation failed"
+# Check if modified cloud image exists
+if ! ssh root@"$PROXMOX_HOST" "test -f /mnt/rbd-iso/template/images/$MODIFIED_IMAGE"; then
+    log_error "Modified cloud image not found: /mnt/rbd-iso/template/images/$MODIFIED_IMAGE"
+    log_error "Run ./prepare-cloud-image.sh first"
     exit 1
 fi
 
-# Check if template already exists and remove it
-log_info "Checking for existing template..."
-PROXMOX_HOST="10.10.1.21"  # Primary Proxmox host
-if ssh sysadmin@"$PROXMOX_HOST" "qm status $TEMPLATE_ID" &>/dev/null; then
-    log_warning "Template $TEMPLATE_ID already exists, removing..."
-    ssh sysadmin@"$PROXMOX_HOST" "qm destroy $TEMPLATE_ID --purge" || true
-fi
+log_info "Creating base VM from modified cloud image..."
 
-# Build the golden image
-log_info "Building golden image with Packer..."
-log_info "This may take 10-15 minutes..."
-
-if PACKER_LOG=1 packer build ubuntu-k8s-golden.pkr.hcl; then
-    log_info "Golden image build completed successfully!"
-    
-    # Convert to template
-    log_info "Converting VM to template..."
-    ssh sysadmin@"$PROXMOX_HOST" "qm template $TEMPLATE_ID"
-    
-    echo ""
-    echo "============================================================"
-    echo -e "${GREEN}✓ PHASE 2 COMPLETED SUCCESSFULLY${NC}"
-    echo "Golden image template ID: $TEMPLATE_ID"
-    echo "Template name: $TEMPLATE_NAME"
-    echo "Proceed to Phase 3: Provision Infrastructure"
-    echo "============================================================"
-else
-    log_error "Packer build failed"
-    echo "Check the Packer logs above for details"
+# Create VM with modern EFI configuration and VirtIO RNG for entropy
+ssh root@"$PROXMOX_HOST" "qm create $BASE_VM_ID --name $VM_NAME --memory 2048 --cores 2 --net0 virtio,bridge=vmbr0 --scsihw virtio-scsi-pci --ostype l26 --cpu host --agent enabled=1 --machine q35 --bios ovmf --rng0 source=/dev/urandom,max_bytes=1024,period=1000" || {
+    log_error "Failed to create base VM"
     exit 1
+}
+
+# Disable ROM bar on network interface to prevent iPXE boot
+ssh root@"$PROXMOX_HOST" "qm set $BASE_VM_ID --net0 virtio,bridge=vmbr0,rombar=0" || {
+    log_warning "Failed to disable network ROM bar, continuing anyway"
+}
+
+# Add EFI disk with secure boot disabled for better compatibility
+ssh root@"$PROXMOX_HOST" "qm set $BASE_VM_ID --efidisk0 rbd:4,efitype=4m,pre-enrolled-keys=0" || {
+    log_error "Failed to add EFI disk"
+    exit 1
+}
+
+# Import modified cloud image as disk
+log_info "Importing modified cloud image as VM disk..."
+ssh root@"$PROXMOX_HOST" "qm importdisk $BASE_VM_ID /mnt/rbd-iso/template/images/$MODIFIED_IMAGE rbd --format raw" || {
+    log_error "Failed to import cloud image"
+    exit 1
+}
+
+# Attach the imported disk as scsi0 (following working examples)
+ssh root@"$PROXMOX_HOST" "qm set $BASE_VM_ID --scsi0 rbd:vm-$BASE_VM_ID-disk-1" || {
+    log_error "Failed to attach disk"
+    exit 1
+}
+
+# Set boot configuration (order: disk first, then CD-ROM)
+ssh root@"$PROXMOX_HOST" "qm set $BASE_VM_ID --boot order=scsi0 --bootdisk scsi0" || {
+    log_error "Failed to set boot configuration"
+    exit 1
+}
+
+# Add cloud-init drive  
+ssh root@"$PROXMOX_HOST" "qm set $BASE_VM_ID --ide2 rbd:cloudinit" || {
+    log_error "Failed to add cloud-init drive"
+    exit 1
+}
+
+# Copy SSH key to Proxmox host
+if [ -f /home/sysadmin/.ssh/sysadmin_automation_key.pub ]; then
+    scp /home/sysadmin/.ssh/sysadmin_automation_key.pub root@"$PROXMOX_HOST":/tmp/
 fi
+
+# Configure cloud-init with sysadmin user
+ssh root@"$PROXMOX_HOST" "qm set $BASE_VM_ID --ciuser sysadmin --cipassword password --sshkeys /tmp/sysadmin_automation_key.pub --ipconfig0 ip=dhcp" || {
+    log_error "Failed to configure cloud-init"
+    exit 1
+}
+
+# Resize disk to reasonable size
+ssh root@"$PROXMOX_HOST" "qm resize $BASE_VM_ID scsi0 32G" || {
+    log_warning "Failed to resize disk, continuing anyway"
+}
+
+# Convert to template
+log_info "Converting to template..."
+ssh root@"$PROXMOX_HOST" "qm template $BASE_VM_ID" || {
+    log_error "Failed to convert to template"
+    exit 1
+}
+
+echo ""
+echo "============================================================"
+echo -e "${GREEN}✓ CLOUD BASE TEMPLATE CREATED SUCCESSFULLY${NC}"
+echo "Template details:"
+echo "  ID: $BASE_VM_ID"
+echo "  Name: $VM_NAME"
+echo "  Type: Ubuntu 24.04 Cloud Image Base (with qemu-guest-agent)"
+echo "  User: sysadmin (password: password)"
+echo "  Ready for Packer cloning"
+echo "============================================================"

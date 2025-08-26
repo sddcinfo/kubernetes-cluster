@@ -19,6 +19,7 @@ downloaded_iso_path/
 packer-log*
 packer-plugin*
 packer-shell*
+.cache/packer/
 
 # Python
 __pycache__/
@@ -58,11 +59,13 @@ kubeconfig
 *.kubeconfig
 config-*
 
-# Binaries
+# Binaries - exclude specific binary files in root
 kubectl
 terraform
-packer
 tofu
+scripts/kubectl
+scripts/terraform
+scripts/tofu
 
 # Ansible
 *.retry

@@ -21,7 +21,7 @@ MIN_CPU_CORES = 4
 MIN_MEMORY_GB = 8
 MIN_STORAGE_GB = 100
 REQUIRED_STORAGE = "rbd"
-REQUIRED_NETWORK = "vmbr1"
+REQUIRED_NETWORKS = ["vmbr0", "vmbr1"]  # vmbr0 for management, vmbr1 for cluster/ceph
 
 def check_proxmox_connectivity(host: str) -> Tuple[bool, str]:
     """Check if Proxmox host is reachable"""
@@ -42,28 +42,190 @@ def check_proxmox_connectivity(host: str) -> Tuple[bool, str]:
     except Exception as e:
         return False, str(e)
 
+def check_packer_user_setup(host: str) -> bool:
+    """Check if packer user exists and has proper permissions"""
+    try:
+        # Check if packer user exists
+        result = subprocess.run(
+            ["ssh", "-o", "ConnectTimeout=5", "-o", "BatchMode=yes", 
+             f"root@{host}", "pveum", "user", "list"],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        
+        if result.returncode == 0:
+            if "packer@pam" in result.stdout:
+                print(f"    ✓ Packer user exists on {host}")
+                
+                # Check permissions
+                perm_result = subprocess.run(
+                    ["ssh", "-o", "ConnectTimeout=5", "-o", "BatchMode=yes",
+                     f"root@{host}", "pveum", "acl", "list"],
+                    capture_output=True,
+                    text=True,
+                    timeout=10
+                )
+                
+                if perm_result.returncode == 0 and "packer@pam" in perm_result.stdout:
+                    print(f"    ✓ Packer permissions configured on {host}")
+                    
+                    # Check token privilege separation
+                    token_result = subprocess.run(
+                        ["ssh", "-o", "ConnectTimeout=5", "-o", "BatchMode=yes",
+                         f"root@{host}", "pveum", "user", "token", "list", "packer@pam"],
+                        capture_output=True,
+                        text=True,
+                        timeout=10
+                    )
+                    
+                    if token_result.returncode == 0 and "privsep" in token_result.stdout:
+                        if "1" in token_result.stdout:
+                            print(f"    ! Token has privilege separation enabled on {host}")
+                        else:
+                            print(f"    ✓ Token privilege separation disabled on {host}")
+                    
+                    return True
+                else:
+                    print(f"    ! Packer user lacks proper permissions on {host}")
+                    return False
+            else:
+                print(f"    ! Packer user not found on {host} (will be created during build)")
+                return False
+        else:
+            print(f"    ! Could not check packer user on {host}: {result.stderr.decode().strip()}")
+            return False
+            
+    except Exception as e:
+        print(f"    ! Error checking packer user on {host}: {e}")
+        return False
+
+def check_rbd_iso_support(host: str) -> bool:
+    """Check and configure RBD storage to support ISO content"""
+    try:
+        # Check current RBD storage configuration
+        result = subprocess.run(
+            ["ssh", "-o", "ConnectTimeout=5", "-o", "BatchMode=yes",
+             f"root@{host}", "cat", "/etc/pve/storage.cfg"],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        
+        if result.returncode == 0:
+            storage_config = result.stdout
+            
+            # Check if RBD storage supports ISO content
+            if "content images,rootdir,iso" in storage_config:
+                print(f"    ✓ RBD storage supports ISO content on {host}")
+                return True
+            elif "content images,rootdir" in storage_config and "iso" not in storage_config:
+                print(f"    ! RBD storage lacks ISO support on {host} (will be configured)")
+                
+                # Configure RBD to support ISO content
+                config_result = subprocess.run(
+                    ["ssh", "-o", "ConnectTimeout=5", "-o", "BatchMode=yes",
+                     f"root@{host}", "cp", "/etc/pve/storage.cfg", "/etc/pve/storage.cfg.backup"],
+                    capture_output=True,
+                    timeout=10
+                )
+                
+                if config_result.returncode == 0:
+                    fix_result = subprocess.run(
+                        ["ssh", "-o", "ConnectTimeout=5", "-o", "BatchMode=yes",
+                         f"root@{host}", "sed", "-i", 
+                         "/^rbd: rbd$/,/^$/ s/content images,rootdir/content images,rootdir,iso/",
+                         "/etc/pve/storage.cfg"],
+                        capture_output=True,
+                        timeout=10
+                    )
+                    
+                    if fix_result.returncode == 0:
+                        print(f"    ✓ RBD storage configured for ISO support on {host}")
+                        return True
+                    else:
+                        print(f"    ! Failed to configure RBD ISO support on {host}")
+                        return False
+                else:
+                    print(f"    ! Could not backup storage config on {host}")
+                    return False
+            else:
+                print(f"    ! RBD storage configuration not found on {host}")
+                return False
+        else:
+            print(f"    ! Could not read storage config on {host}")
+            return False
+            
+    except Exception as e:
+        print(f"    ! Error checking RBD ISO support on {host}: {e}")
+        return False
+
+def check_rbd_iso_storage(host: str) -> bool:
+    """Check if RBD-backed ISO storage is configured"""
+    try:
+        # Check if rbd-iso storage is configured
+        result = subprocess.run(
+            ["ssh", "-o", "ConnectTimeout=5", "-o", "BatchMode=yes",
+             f"root@{host}", "grep", "-q", "dir: rbd-iso", "/etc/pve/storage.cfg"],
+            capture_output=True,
+            timeout=10
+        )
+        
+        if result.returncode == 0:
+            print(f"    ✓ RBD-backed ISO storage configured on {host}")
+            
+            # Check if ISO storage is mounted
+            mount_result = subprocess.run(
+                ["ssh", "-o", "ConnectTimeout=5", "-o", "BatchMode=yes",
+                 f"root@{host}", "mount", "|", "grep", "-q", "/mnt/rbd-iso"],
+                capture_output=True,
+                timeout=10
+            )
+            
+            if mount_result.returncode == 0:
+                print(f"    ✓ RBD-ISO filesystem mounted on {host}")
+            else:
+                print(f"    ! RBD-ISO filesystem not mounted on {host}")
+            
+            return True
+        else:
+            print(f"    ! RBD-backed ISO storage not configured on {host}")
+            return False
+            
+    except Exception as e:
+        print(f"    ! Error checking RBD-ISO storage on {host}: {e}")
+        return False
+
 def check_network_requirements() -> bool:
     """Validate network configuration"""
     print("\n[NETWORK] Checking network requirements...")
     
-    # Check for required bridge (may not exist on deployment host)
-    try:
-        result = subprocess.run(
-            ["ip", "link", "show", REQUIRED_NETWORK],
-            capture_output=True,
-            text=True,
-            timeout=5
-        )
-        if result.returncode == 0:
-            print(f"  ✓ Network bridge {REQUIRED_NETWORK} exists on this host")
-            return True
-        else:
-            print(f"  ! Network bridge {REQUIRED_NETWORK} not found on deployment host")
-            print(f"    (This is normal if deploying from external host)")
-            # Test actual application connectivity - SSH to first Proxmox host
-            print(f"  → Testing SSH connectivity to Proxmox hosts...")
-            ssh_success = False
-            for host in PROXMOX_HOSTS[:2]:  # Test first 2 hosts
+    # Check for required bridges (may not exist on deployment host)
+    networks_found = []
+    for bridge in REQUIRED_NETWORKS:
+        try:
+            result = subprocess.run(
+                ["ip", "link", "show", bridge],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            if result.returncode == 0:
+                print(f"  ✓ Network bridge {bridge} exists on this host")
+                networks_found.append(bridge)
+            else:
+                print(f"  ! Network bridge {bridge} not found on deployment host")
+        except:
+            print(f"  ! Could not check network bridge {bridge}")
+    
+    if networks_found:
+        return True
+    else:
+        print(f"    (This is normal if deploying from external host)")
+        # Test actual application connectivity - SSH to first Proxmox host
+        print(f"  → Testing SSH connectivity to Proxmox hosts...")
+        ssh_success = False
+        for host in PROXMOX_HOSTS[:2]:  # Test first 2 hosts
                 try:
                     result = subprocess.run(
                         ["ssh", "-o", "ConnectTimeout=5", "-o", "StrictHostKeyChecking=no", 
@@ -306,14 +468,29 @@ def main():
     # 1. Check Proxmox cluster connectivity
     print("\n[PROXMOX] Checking cluster connectivity...")
     proxmox_ok = True
+    packer_users_ok = 0
     for host in PROXMOX_HOSTS:
         status, message = check_proxmox_connectivity(host)
         if status:
             print(f"  ✓ {host}: {message}")
+            # Check packer user setup if SSH is accessible
+            if check_packer_user_setup(host):
+                packer_users_ok += 1
+            # Check and configure RBD ISO support
+            check_rbd_iso_support(host)
+            # Check RBD-backed ISO storage
+            check_rbd_iso_storage(host)
         else:
             print(f"  ✗ {host}: {message}")
             proxmox_ok = False
+    
     validation_results['proxmox'] = proxmox_ok
+    
+    # Report packer user status
+    if packer_users_ok > 0:
+        print(f"  ✓ Packer users configured on {packer_users_ok}/{len(PROXMOX_HOSTS)} nodes")
+    else:
+        print(f"  ! No packer users found (will be created during Phase 2)")
     
     # 2. Check network requirements
     validation_results['network'] = check_network_requirements()
