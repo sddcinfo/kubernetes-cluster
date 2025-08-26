@@ -64,8 +64,6 @@ source "proxmox-iso" "ubuntu-vanilla" {
     iso_storage_pool = "rbd"
   }
   
-  unmount_iso = true
-  
   # Cloud-init configuration
   cloud_init              = true
   cloud_init_storage_pool = "rbd"
