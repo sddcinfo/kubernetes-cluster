@@ -1,0 +1,67 @@
+# Logs
+*.log
+*.log.*
+
+# Terraform/OpenTofu
+.terraform/
+.terraform.lock.hcl
+terraform.tfstate
+terraform.tfstate.*
+terraform.tfstate.backup
+*.tfplan
+*.tfvars.local
+
+# Packer
+packer_cache/
+*.box
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.env
+.venv
+
+# Deployment state
+deployment-state.json
+*.state
+
+# SSH keys (if accidentally added)
+id_rsa
+id_rsa.pub
+*.pem
+
+# Temporary files
+*.tmp
+*.temp
+.DS_Store
+.thumbs.db
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Kubeconfig files
+kubeconfig
+*.kubeconfig
+config-*
+
+# Ansible
+*.retry
+.ansible/
+
+# OS generated files
+Thumbs.db
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db

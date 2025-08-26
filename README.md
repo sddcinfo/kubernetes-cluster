@@ -1,342 +1,301 @@
-# Kubernetes on Proxmox - Production-Ready Automation
+# Enterprise Kubernetes on Proxmox VE
 
-Complete automation framework for deploying production-grade Kubernetes clusters on Proxmox VE using industry best practices.
+Production-grade automation framework for deploying highly available Kubernetes clusters on Proxmox VE infrastructure using industry-standard tooling and best practices.
 
-## Quick Start
+## Overview
 
-```bash
-# Clone the repository
-git clone https://github.com/yourusername/kubernetes-cluster.git
-cd kubernetes-cluster/scripts
+This solution provides comprehensive automation for deploying and managing production-ready Kubernetes clusters on Proxmox VE environments. Built using a proven technology stack of Packer, OpenTofu, Ansible, and Python, it eliminates manual configuration steps while ensuring consistent, reliable deployments.
 
-# Deploy complete cluster
-python3 deploy-cluster.py deploy
+### Key Features
 
-# Check status
-python3 deploy-cluster.py status
+- **Zero-touch deployment** - Fully automated cluster provisioning from bare infrastructure
+- **High availability** - Multi-master control plane with load balancer and keepalived
+- **Production hardening** - Security best practices, monitoring, and backup solutions
+- **Scalable architecture** - Easy horizontal scaling of worker nodes
+- **Infrastructure as Code** - Version-controlled, repeatable deployments
+- **Comprehensive monitoring** - Prometheus, Grafana, and alerting stack included
+
+### Technology Stack
+
+| Component | Technology | Purpose |
+|-----------|------------|---------|
+| **Golden Images** | HashiCorp Packer | Immutable VM template creation |
+| **Infrastructure** | OpenTofu | Declarative infrastructure provisioning |
+| **Configuration** | Ansible | Idempotent configuration management |
+| **Orchestration** | Python 3.11+ | Deployment coordination and state tracking |
+| **Container Network** | Cilium | eBPF-based CNI with security policies |
+| **Storage** | Proxmox CSI | Dynamic persistent volume provisioning |
+| **Load Balancing** | MetalLB | Bare-metal LoadBalancer service implementation |
+
+## Architecture
+
+The solution deploys a production-grade Kubernetes cluster with the following components:
+
+- **3 Control Plane Nodes** - High availability with stacked etcd
+- **4+ Worker Nodes** - Configurable based on workload requirements  
+- **HAProxy + Keepalived** - Control plane load balancing and VIP management
+- **Cilium CNI** - Advanced networking with eBPF dataplane
+- **Proxmox CSI** - Integration with Ceph storage backend
+- **Platform Services** - Ingress, monitoring, backup, and certificate management
+
+### Network Configuration
+
 ```
-
-## Architecture Overview
-
-This solution implements a **5-phase deployment approach** using proven tools:
-
-- **Packer** - VM golden image creation
-- **OpenTofu/Terraform** - Infrastructure as Code
-- **Ansible** - Configuration management
-- **Python** - Orchestration and automation
-
-See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed design decisions.
+Control Plane VIP:    10.10.1.99
+Control Plane Nodes:  10.10.1.100-102
+Worker Nodes:         10.10.1.110-113
+MetalLB IP Pool:      10.10.1.150-180
+```
 
 ## Prerequisites
 
-### Hardware Requirements
-- Proxmox VE 8.0+ cluster (minimum 4 nodes recommended)
-- Per node: 8+ CPU cores, 32GB+ RAM, 500GB+ storage
-- Ceph or similar distributed storage configured
-- Network bridge configured (vmbr1)
+### Infrastructure Requirements
 
-### Software Requirements
+- **Proxmox VE 8.0+** cluster with minimum 4 nodes
+- **Hardware per node**: 8+ CPU cores, 32GB+ RAM, 500GB+ storage
+- **Storage**: Ceph RBD or similar distributed storage configured
+- **Networking**: Dedicated bridge interface (vmbr1) configured
+- **DNS**: Forward and reverse DNS resolution configured
+
+### Software Dependencies
+
 ```bash
-# Install required tools
+# Install required packages on deployment host
 sudo apt update
-sudo apt install -y python3 python3-pip ansible packer terraform kubectl
+sudo apt install -y python3 python3-pip ansible packer kubectl
 
-# Python dependencies
-pip3 install -r requirements.txt
-
-# Install OpenTofu (optional, replaces Terraform)
+# Install OpenTofu (recommended over Terraform)
 curl -sSL https://get.opentofu.org/install.sh | bash
+
+# Install Python dependencies
+pip3 install -r requirements.txt
 ```
 
 ### Proxmox Configuration
-1. API token created with appropriate permissions
-2. Storage pool named 'rbd' (or update configuration)
-3. Network bridge 'vmbr1' configured
-4. DNS configured and working
 
-## Deployment Phases
+1. Create API tokens with appropriate permissions for automation
+2. Configure storage pools (default: `rbd` for Ceph RBD)
+3. Setup network bridges for cluster communication
+4. Verify DNS resolution for external registries
 
-### Phase 1: Environment Validation
-Validates all prerequisites are met:
+## Deployment Process
+
+### Phase-Based Deployment
+
+The deployment follows a structured 5-phase approach:
+
+1. **Environment Validation** - Verify prerequisites and connectivity
+2. **Golden Image Creation** - Build Kubernetes-ready VM templates  
+3. **Infrastructure Provisioning** - Deploy VMs with OpenTofu
+4. **Kubernetes Bootstrap** - Initialize cluster with kubeadm
+5. **Platform Services** - Deploy monitoring, ingress, and storage
+
+### Quick Start
+
+```bash
+# Clone repository
+git clone https://github.com/sddcinfo/kubernetes-cluster.git
+cd kubernetes-cluster
+
+# Configure deployment settings
+vim terraform/terraform.tfvars  # Update Proxmox connection details
+
+# Execute full deployment
+cd scripts
+python3 deploy-cluster.py deploy
+```
+
+### Individual Phase Execution
+
+For granular control or troubleshooting:
+
 ```bash
 cd scripts
+
+# Run individual phases
 python3 01-validate-environment.py
-```
-
-### Phase 2: Build Golden Image
-Creates Kubernetes-ready VM template with Packer:
-```bash
 ./02-build-golden-image.sh
-```
-
-### Phase 3: Provision Infrastructure
-Deploys VMs using OpenTofu/Terraform:
-```bash
-./03-provision-infrastructure.sh
-```
-
-### Phase 4: Bootstrap Kubernetes
-Initializes cluster with kubeadm via Ansible:
-```bash
+./03-provision-infrastructure.sh  
 ./04-bootstrap-kubernetes.sh
-```
-
-### Phase 5: Deploy Platform Services
-Installs essential services (CNI, CSI, monitoring, etc.):
-```bash
 ./05-deploy-platform-services.sh
 ```
 
-## Main Orchestrator
-
-The `deploy-cluster.py` script orchestrates all phases:
+### Deployment Management
 
 ```bash
-# Full deployment
-python3 deploy-cluster.py deploy
-
-# Skip specific phases
-python3 deploy-cluster.py deploy --skip-phases VALIDATE BUILD_IMAGE
-
-# Force rebuild (ignore completed phases)
-python3 deploy-cluster.py deploy --force-rebuild
-
 # Check deployment status
 python3 deploy-cluster.py status
 
+# Skip completed phases
+python3 deploy-cluster.py deploy --skip-phases VALIDATE BUILD_IMAGE
+
+# Force complete rebuild
+python3 deploy-cluster.py deploy --force-rebuild
+
 # Clean up all resources
 python3 deploy-cluster.py cleanup
-
-# Reset deployment state
-python3 deploy-cluster.py reset
 ```
 
 ## Configuration
 
-### Cluster Settings
-Edit configuration at the top of each phase script:
+### Cluster Sizing
+
+Edit configuration variables in phase scripts:
 
 ```bash
 # scripts/03-provision-infrastructure.sh
-CONTROL_NODES=3
-WORKER_NODES=4
+CONTROL_NODES=3     # Control plane instances
+WORKER_NODES=4      # Worker node count
 
-# scripts/04-bootstrap-kubernetes.sh
-KUBE_VERSION="1.30.0"
-POD_NETWORK="10.244.0.0/16"
-SERVICE_NETWORK="10.96.0.0/12"
+# scripts/04-bootstrap-kubernetes.sh  
+KUBE_VERSION="1.30.0"           # Kubernetes version
+POD_NETWORK="10.244.0.0/16"     # Pod CIDR
+SERVICE_NETWORK="10.96.0.0/12"  # Service CIDR
 ```
 
-### Proxmox Settings
-Update Proxmox connection details:
+### Proxmox Integration
 
-```bash
-# terraform/main.tf
+Update connection parameters in `terraform/main.tf`:
+
+```hcl
 variable "proxmox_host" {
   default = "10.10.1.21"
 }
 
 variable "proxmox_token" {
-  default = "packer@pam!packer=<your-token>"
+  default = "automation@pam!deploy=<token-secret>"
 }
 ```
 
-## Cluster Architecture
+## Cluster Access
 
-### Default Configuration
-- **Control Plane**: 3 nodes (HA with keepalived/haproxy)
-- **Worker Nodes**: 4 nodes
-- **CNI**: Cilium (production-ready, eBPF-based)
-- **CSI**: Proxmox CSI (integrates with Ceph)
-- **Load Balancer**: MetalLB (bare-metal LoadBalancer)
-- **Ingress**: NGINX Ingress Controller
-- **Monitoring**: Prometheus + Grafana stack
-- **Backup**: Velero with S3 backend
-- **Dashboard**: Kubernetes Dashboard
-- **Certificates**: cert-manager
+### kubectl Configuration
 
-### Network Layout
-```
-10.10.1.99    - Control plane VIP (keepalived)
-10.10.1.100-102 - Control plane nodes
-10.10.1.110-113 - Worker nodes
-10.10.1.150-180 - MetalLB IP pool
-```
-
-## Accessing the Cluster
-
-### kubectl Access
 ```bash
+# Configure local access
 export KUBECONFIG=~/.kube/config-k8s-cluster
 kubectl get nodes
-kubectl get pods -A
+kubectl get pods --all-namespaces
 ```
 
-### Dashboard Access
+### Management Interfaces
+
+**Kubernetes Dashboard**
 ```bash
-# Get token
-cat manifests/monitoring/dashboard-token.txt
-
-# Start proxy
 kubectl proxy
-
-# Access at: http://localhost:8001/api/v1/namespaces/kubernetes-dashboard/services/https:kubernetes-dashboard:/proxy/
+# Access: http://localhost:8001/api/v1/namespaces/kubernetes-dashboard/services/https:kubernetes-dashboard:/proxy/
+# Token: cat manifests/monitoring/dashboard-token.txt
 ```
 
-### Grafana Access
+**Grafana Monitoring**
 ```bash
 kubectl port-forward -n monitoring svc/prometheus-grafana 3000:80
-# Access at: http://localhost:3000
-# Username: admin, Password: admin
+# Access: http://localhost:3000 (admin/admin)
 ```
 
-### Prometheus Access
+**Prometheus Metrics**
 ```bash
-kubectl port-forward -n monitoring svc/prometheus-kube-prometheus-prometheus 9090:9090
-# Access at: http://localhost:9090
+kubectl port-forward -n monitoring svc/prometheus-kube-prometheus-prometheus 9090:9090  
+# Access: http://localhost:9090
 ```
+
+## Operations
+
+### Scaling Workers
+
+```bash
+# Update worker count
+vim scripts/03-provision-infrastructure.sh  # Increase WORKER_NODES
+cd terraform && tofu apply
+```
+
+### Backup Management
+
+Velero backup system is configured for:
+- Cluster state and configuration
+- Persistent volume snapshots  
+- Application-level backup scheduling
+
+### Monitoring and Alerting
+
+Pre-configured monitoring stack includes:
+- **Prometheus** - Metrics collection and alerting
+- **Grafana** - Visualization and dashboards
+- **AlertManager** - Alert routing and notification
+- **Node Exporter** - Hardware and OS metrics
 
 ## Troubleshooting
 
-### Check Phase Logs
-Each phase creates detailed logs:
+### Deployment Issues
+
+**Infrastructure Provisioning Failures**
 ```bash
-# Check deployment state
-cat scripts/deployment-state.json
-
-# Check Terraform state
-cd terraform && terraform show
-
-# Check Ansible logs
-ansible -i ansible/inventory.yml all -m ping
+cd terraform
+tofu show                    # Review current state
+tofu plan                    # Verify planned changes
+tofu destroy --auto-approve  # Clean slate if needed
 ```
 
-### Common Issues
-
-**VMs won't start:**
-- Check Proxmox storage space
-- Verify template ID 9000 exists
-- Check resource availability
-
-**Kubernetes won't initialize:**
-- Verify network connectivity between nodes
-- Check swap is disabled
-- Ensure containerd is running
-
-**Services won't deploy:**
-- Check cluster DNS (CoreDNS pods)
-- Verify storage class is available
-- Check resource quotas
-
-### Reset and Retry
+**Cluster Bootstrap Problems**
 ```bash
-# Clean up everything
-python3 deploy-cluster.py cleanup
+# Check node connectivity
+ansible -i ansible/inventory.yml all -m ping
 
-# Reset state
-python3 deploy-cluster.py reset
+# Verify Kubernetes prerequisites
+kubectl get nodes
+kubectl get pods --all-namespaces
+```
 
-# Start fresh
-python3 deploy-cluster.py deploy
+**Service Deployment Issues**
+```bash
+# Check cluster DNS
+kubectl get pods -n kube-system -l k8s-app=kube-dns
+
+# Verify storage class
+kubectl get storageclass
+
+# Review resource constraints  
+kubectl describe nodes
+```
+
+### Recovery Procedures
+
+**Complete Environment Reset**
+```bash
+python3 deploy-cluster.py cleanup  # Remove all resources
+python3 deploy-cluster.py reset    # Clear deployment state
+python3 deploy-cluster.py deploy   # Fresh deployment
 ```
 
 ## Production Considerations
 
-### High Availability
-- Control plane uses 3 nodes with stacked etcd
-- HAProxy + Keepalived for API server HA
-- Applications should use multiple replicas
-- Configure pod disruption budgets
+### Security Hardening
+- RBAC enabled by default with principle of least privilege
+- Network policies enforced via Cilium
+- Pod security policies implemented
+- Regular security updates via automated patching
 
-### Security
-- Enable RBAC (default)
-- Use network policies (Cilium)
-- Implement pod security policies
-- Regular security updates
-- Secrets management (consider Sealed Secrets or Vault)
+### Backup Strategy  
+- Automated daily cluster state backups via Velero
+- Persistent volume snapshot scheduling
+- Disaster recovery procedures documented
+- Regular backup restoration testing
 
-### Backup Strategy
-- Velero configured for cluster backup
-- Regular etcd snapshots
-- Persistent volume backups
-- Application-level backups
-
-### Monitoring
-- Prometheus metrics collection
-- Grafana dashboards
-- Alert rules configuration
-- Log aggregation (consider adding Loki)
-
-### Scaling
-- Add worker nodes by updating `WORKER_NODES` and re-running Phase 3
-- Horizontal Pod Autoscaler for applications
-- Cluster Autoscaler integration possible
-- Vertical Pod Autoscaler for right-sizing
-
-## Directory Structure
-```
-kubernetes-cluster/
-├── README.md                 # This file
-├── ARCHITECTURE.md          # Detailed architecture decisions
-├── requirements.txt         # Python dependencies
-│
-├── scripts/                 # Phase-based deployment scripts
-│   ├── 01-validate-environment.py
-│   ├── 02-build-golden-image.sh
-│   ├── 03-provision-infrastructure.sh
-│   ├── 04-bootstrap-kubernetes.sh
-│   ├── 05-deploy-platform-services.sh
-│   └── deploy-cluster.py    # Main orchestrator
-│
-├── packer/                  # Packer templates
-│   ├── ubuntu-k8s-golden.pkr.hcl
-│   └── http/               # Cloud-init configs
-│
-├── terraform/              # Infrastructure as Code
-│   ├── main.tf
-│   ├── variables.tf
-│   └── templates/
-│
-├── ansible/                # Configuration management
-│   ├── inventory.yml
-│   ├── bootstrap-k8s.yml
-│   └── roles/
-│
-└── manifests/             # Kubernetes manifests
-    ├── networking/
-    ├── storage/
-    └── monitoring/
-```
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Test thoroughly
-5. Submit a pull request
-
-## License
-
-MIT License - See LICENSE file for details
+### Performance Optimization
+- Resource requests and limits configured
+- Horizontal Pod Autoscaler (HPA) enabled
+- Cluster monitoring and capacity planning
+- Network performance tuning for high-throughput workloads
 
 ## Support
 
-For issues, questions, or contributions:
-- Open an issue on GitHub
-- Check existing documentation
-- Review [ARCHITECTURE.md](ARCHITECTURE.md) for design details
+For technical issues or deployment assistance:
 
-## Acknowledgments
-
-Built with industry-standard tools:
-- [Proxmox VE](https://www.proxmox.com/)
-- [Kubernetes](https://kubernetes.io/)
-- [Packer](https://www.packer.io/)
-- [OpenTofu](https://opentofu.org/)
-- [Ansible](https://www.ansible.com/)
-- [Cilium](https://cilium.io/)
+1. Review deployment logs in `scripts/deployment-state.json`
+2. Consult [ARCHITECTURE.md](ARCHITECTURE.md) for design decisions
+3. Check Proxmox and Kubernetes documentation for component-specific issues
+4. Engage enterprise support channels for production environments
 
 ---
 
-**Status**: Production Ready | **Version**: 2.0 | **Last Updated**: 2024
+**Enterprise Kubernetes on Proxmox VE** - Production-ready automation for modern infrastructure.
