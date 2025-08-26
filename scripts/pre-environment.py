@@ -432,7 +432,7 @@ export PROXMOX_USER="packer@pam!packer"
         log_error(f"Failed to write Packer environment files: {e}")
         return False
 
-def update_packer_config() -> bool:
+def update_packer_config(token: str) -> bool:
     """Update Packer configuration to use external variables"""
     log_step("Updating Packer configuration...")
     
@@ -442,27 +442,34 @@ def update_packer_config() -> bool:
         # Read current content
         content = packer_file.read_text()
         
-        # Replace hardcoded token with placeholder
+        # Replace hardcoded token with variable reference
         content = re.sub(
             r'token\s*=\s*"[^"]*"',
             'token = var.proxmox_token',
             content
         )
         
-        # Ensure variable exists
+        # Update the proxmox_token variable default value with the actual token
+        content = re.sub(
+            r'variable "proxmox_token" \{\s*type\s*=\s*string\s*default\s*=\s*"[^"]*"',
+            f'variable "proxmox_token" {{\n  type    = string\n  default = "{token}"',
+            content
+        )
+        
+        # If the variable doesn't exist, add it
         if 'variable "proxmox_token"' not in content:
             # Add variable definition after existing variables
             var_insert_point = content.find('variable "template_id"')
             if var_insert_point != -1:
                 # Find end of template_id variable
                 end_point = content.find('}', var_insert_point) + 1
-                new_var = '\n\nvariable "proxmox_token" {\n  type    = string\n  default = ""\n}\n'
+                new_var = f'\n\nvariable "proxmox_token" {{\n  type    = string\n  default = "{token}"\n}}\n'
                 content = content[:end_point] + new_var + content[end_point:]
         
         # Write updated content
         packer_file.write_text(content)
         
-        log_info("Packer configuration updated")
+        log_info("Packer configuration updated with token")
         return True
         
     except Exception as e:
@@ -529,8 +536,8 @@ def main():
     if not write_packer_env_file(packer_token):
         sys.exit(1)
     
-    # Step 8: Update Packer configuration
-    if not update_packer_config():
+    # Step 8: Update Packer configuration with token
+    if not update_packer_config(packer_token):
         sys.exit(1)
     
     print()
