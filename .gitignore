@@ -58,6 +58,12 @@ kubeconfig
 *.kubeconfig
 config-*
 
+# Binaries
+kubectl
+terraform
+packer
+tofu
+
 # Ansible
 *.retry
 .ansible/

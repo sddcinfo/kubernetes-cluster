@@ -21,11 +21,13 @@ autoinstall:
       name: direct
   identity:
     hostname: ubuntu-vanilla-golden
-    username: ubuntu
-    password: '$6$MpQjIEU5MEQStrhF$kLP6alkk.s0J5tDxW76HFfuRR3/7r9ONC2w5qFd1xtAnJhrwrf9HrXDrwUJW9iEb5iRxlFYVNorQM07n4BeOV1'
+    username: sysadmin
+    password: '$6$HalE21GJxD2gklWy$FZgwcby3YdVRaUJUaTxaf8gZc7lVdLKjodF/SPxVK/C6T6ylKzGKHI/Sahi2LiBzv5pCfg7BcXJaB85.2T3lJ1'
   ssh:
     install-server: true
     allow-pw: true
+    authorized-keys:
+      - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPBG18KoYrX7WQA9FQGOZhLgsgpALC2TNGnWxswPJgYZ root@mgmt
   packages:
     - openssh-server
     - qemu-guest-agent
@@ -40,7 +42,7 @@ autoinstall:
   early-commands:
     - systemctl stop ssh
   late-commands:
-    - echo 'ubuntu ALL=(ALL) NOPASSWD:ALL' > /target/etc/sudoers.d/ubuntu
-    - chmod 440 /target/etc/sudoers.d/ubuntu
+    - echo 'sysadmin ALL=(ALL) NOPASSWD:ALL' > /target/etc/sudoers.d/sysadmin
+    - chmod 440 /target/etc/sudoers.d/sysadmin
     - curtin in-target --target=/target -- systemctl enable qemu-guest-agent
     - curtin in-target --target=/target -- systemctl enable ssh

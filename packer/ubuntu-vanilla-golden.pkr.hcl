@@ -71,7 +71,7 @@ source "proxmox-iso" "ubuntu-vanilla" {
   cloud_init_storage_pool = "rbd"
   
   # SSH configuration
-  ssh_username            = "ubuntu"
+  ssh_username            = "sysadmin"
   ssh_private_key_file    = "/home/sysadmin/.ssh/sysadmin_automation_key"
   ssh_timeout             = "20m"
   
