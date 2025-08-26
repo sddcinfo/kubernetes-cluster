@@ -63,11 +63,12 @@ source "proxmox-iso" "ubuntu-vanilla" {
     vlan_tag = ""
   }
   
-  # Use Ubuntu 24.04.3 Server ISO - local provisioning server first, then fallback to internet
+  # Use Ubuntu 24.04.3 Server ISO with local caching
   boot_iso {
     iso_url          = var.ubuntu_mirror != "" ? "${var.ubuntu_mirror}/ubuntu-24.04.3-live-server-amd64.iso" : "https://releases.ubuntu.com/24.04.3/ubuntu-24.04.3-live-server-amd64.iso"
     iso_checksum     = "sha256:c3514bf0056180d09376462a7a1b4f213c1d6e8ea67fae5c25099c6fd3d8274b"
     iso_storage_pool = "rbd"
+    iso_download_pve = false  # Download to local cache first, then upload to Proxmox
   }
   
   # Cloud-init configuration
