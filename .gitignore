@@ -14,6 +14,11 @@ terraform.tfstate.backup
 # Packer
 packer_cache/
 *.box
+downloaded_iso_path/
+*.iso
+packer-log*
+packer-plugin*
+packer-shell*
 
 # Python
 __pycache__/

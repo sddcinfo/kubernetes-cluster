@@ -1,2 +1,2 @@
-instance-id: packer-ubuntu-k8s
-local-hostname: packer-ubuntu-k8s
+instance-id: ubuntu-vanilla-golden
+local-hostname: ubuntu-vanilla-golden

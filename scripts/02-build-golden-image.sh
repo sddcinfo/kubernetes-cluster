@@ -12,10 +12,9 @@ NC='\033[0m' # No Color
 
 # Configuration
 PACKER_DIR="../packer"
-TEMPLATE_NAME="ubuntu-k8s-golden"
+TEMPLATE_NAME="ubuntu-2404-vanilla-golden"
 TEMPLATE_ID="9000"
-UBUNTU_VERSION="24.04"
-ISO_URL="https://cloud-images.ubuntu.com/releases/${UBUNTU_VERSION}/release/ubuntu-${UBUNTU_VERSION}-server-cloudimg-amd64.img"
+UBUNTU_VERSION="24.04.3"
 
 echo "============================================================"
 echo "PHASE 2: BUILD GOLDEN IMAGE"
@@ -40,19 +39,16 @@ if [ ! -f "02-build-golden-image.sh" ]; then
     exit 1
 fi
 
-# Download Ubuntu cloud image if needed
-log_info "Checking for Ubuntu cloud image..."
-IMAGE_FILE="/tmp/ubuntu-${UBUNTU_VERSION}-cloudimg.img"
-if [ ! -f "$IMAGE_FILE" ]; then
-    log_info "Downloading Ubuntu ${UBUNTU_VERSION} cloud image..."
-    wget -O "$IMAGE_FILE" "$ISO_URL"
-else
-    log_info "Ubuntu cloud image already exists"
+# Create simplified Packer template for vanilla Ubuntu
+log_info "Using vanilla Ubuntu ${UBUNTU_VERSION} Packer template..."
+PACKER_TEMPLATE="${PACKER_DIR}/ubuntu-vanilla-golden.pkr.hcl"
+
+if [ ! -f "$PACKER_TEMPLATE" ]; then
+    log_error "Packer template not found: $PACKER_TEMPLATE"
+    exit 1
 fi
 
-# Create simplified Packer template
-log_info "Creating optimized Packer template..."
-cat > "${PACKER_DIR}/ubuntu-k8s-golden.pkr.hcl" << 'EOF'
+log_info "Packer template found: $PACKER_TEMPLATE"
 packer {
   required_plugins {
     proxmox = {
@@ -209,9 +205,10 @@ fi
 
 # Check if template already exists and remove it
 log_info "Checking for existing template..."
-if qm status "$TEMPLATE_ID" &>/dev/null; then
+PROXMOX_HOST="10.10.1.21"  # Primary Proxmox host
+if ssh sysadmin@"$PROXMOX_HOST" "qm status $TEMPLATE_ID" &>/dev/null; then
     log_warning "Template $TEMPLATE_ID already exists, removing..."
-    qm destroy "$TEMPLATE_ID" --purge || true
+    ssh sysadmin@"$PROXMOX_HOST" "qm destroy $TEMPLATE_ID --purge" || true
 fi
 
 # Build the golden image
@@ -223,7 +220,7 @@ if PACKER_LOG=1 packer build ubuntu-k8s-golden.pkr.hcl; then
     
     # Convert to template
     log_info "Converting VM to template..."
-    qm template "$TEMPLATE_ID"
+    ssh sysadmin@"$PROXMOX_HOST" "qm template $TEMPLATE_ID"
     
     echo ""
     echo "============================================================"

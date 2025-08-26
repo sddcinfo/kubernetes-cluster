@@ -20,7 +20,7 @@ autoinstall:
     layout:
       name: direct
   identity:
-    hostname: packer-ubuntu-k8s
+    hostname: ubuntu-vanilla-golden
     username: ubuntu
     password: '$6$MpQjIEU5MEQStrhF$kLP6alkk.s0J5tDxW76HFfuRR3/7r9ONC2w5qFd1xtAnJhrwrf9HrXDrwUJW9iEb5iRxlFYVNorQM07n4BeOV1'
   ssh:
@@ -30,6 +30,10 @@ autoinstall:
     - openssh-server
     - qemu-guest-agent
     - cloud-init
+    - curl
+    - wget
+    - vim
+    - htop
   user-data:
     disable_root: false
     preserve_hostname: false
