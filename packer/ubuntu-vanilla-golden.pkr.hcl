@@ -29,8 +29,8 @@ variable "template_id" {
 
 variable "ubuntu_mirror" {
   type    = string
-  default = "https://ftp.riken.jp/Linux/ubuntu-releases"
-  description = "Ubuntu mirror URL - leave empty for default releases.ubuntu.com"
+  default = "http://10.10.1.1/provisioning/ubuntu24.04"
+  description = "Ubuntu mirror URL - defaults to local provisioning server"
 }
 
 source "proxmox-iso" "ubuntu-vanilla" {
@@ -63,9 +63,9 @@ source "proxmox-iso" "ubuntu-vanilla" {
     vlan_tag = ""
   }
   
-  # Use Ubuntu 24.04.3 Server ISO with configurable mirror
+  # Use Ubuntu 24.04.3 Server ISO - local provisioning server first, then fallback to internet
   boot_iso {
-    iso_url          = var.ubuntu_mirror != "" ? "${var.ubuntu_mirror}/24.04.3/ubuntu-24.04.3-live-server-amd64.iso" : "https://releases.ubuntu.com/24.04.3/ubuntu-24.04.3-live-server-amd64.iso"
+    iso_url          = var.ubuntu_mirror != "" ? "${var.ubuntu_mirror}/ubuntu-24.04.3-live-server-amd64.iso" : "https://releases.ubuntu.com/24.04.3/ubuntu-24.04.3-live-server-amd64.iso"
     iso_checksum     = "sha256:c3514bf0056180d09376462a7a1b4f213c1d6e8ea67fae5c25099c6fd3d8274b"
     iso_storage_pool = "rbd"
   }
