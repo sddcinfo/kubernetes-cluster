@@ -27,6 +27,12 @@ variable "template_id" {
   default = "9000"
 }
 
+variable "ubuntu_mirror" {
+  type    = string
+  default = "https://ftp.riken.jp/Linux/ubuntu-releases"
+  description = "Ubuntu mirror URL - leave empty for default releases.ubuntu.com"
+}
+
 source "proxmox-iso" "ubuntu-vanilla" {
   proxmox_url              = "https://${var.proxmox_host}/api2/json"
   username                = "packer@pam"
@@ -57,10 +63,10 @@ source "proxmox-iso" "ubuntu-vanilla" {
     vlan_tag = ""
   }
   
-  # Use Ubuntu 24.04.3 Server ISO with modern boot_iso block
+  # Use Ubuntu 24.04.3 Server ISO with configurable mirror
   boot_iso {
-    iso_url          = "https://releases.ubuntu.com/24.04.3/ubuntu-24.04.3-live-server-amd64.iso"
-    iso_checksum     = "sha256:c2e6f4dc37ac944e2ed507f87c6188dd8bd9f4a44f0dd0a3f6aa859cdeec7d0f"
+    iso_url          = var.ubuntu_mirror != "" ? "${var.ubuntu_mirror}/24.04.3/ubuntu-24.04.3-live-server-amd64.iso" : "https://releases.ubuntu.com/24.04.3/ubuntu-24.04.3-live-server-amd64.iso"
+    iso_checksum     = "sha256:c3514bf0056180d09376462a7a1b4f213c1d6e8ea67fae5c25099c6fd3d8274b"
     iso_storage_pool = "rbd"
   }
   
