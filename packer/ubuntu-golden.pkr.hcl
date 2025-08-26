@@ -14,7 +14,7 @@ variable "proxmox_host" {
 
 variable "proxmox_token" {
   type    = string
-  default = "packer@pam!packer=PLACEHOLDER_TOKEN"
+  default = ""
 }
 
 variable "template_name" {
@@ -30,7 +30,7 @@ variable "template_id" {
 source "proxmox-clone" "ubuntu-cloud" {
   proxmox_url              = "https://${var.proxmox_host}/api2/json"
   username                = "packer@pam!packer"
-  token                   = "PLACEHOLDER_TOKEN"
+  token                   = var.proxmox_token
   insecure_skip_tls_verify = true
   
   vm_name                 = var.template_name
@@ -48,7 +48,7 @@ source "proxmox-clone" "ubuntu-cloud" {
   scsi_controller         = "virtio-scsi-pci"
   
   # Clone from properly prepared cloud base template
-  clone_vm_id             = "9002"
+  clone_vm                = "ubuntu-cloud-base"
   
   # Modern EFI configuration with proper boot support
   bios                    = "ovmf"
