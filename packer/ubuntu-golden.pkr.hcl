@@ -14,7 +14,7 @@ variable "proxmox_host" {
 
 variable "proxmox_token" {
   type    = string
-  default = "packer@pam!packer=caa32cfb-7745-49cc-9d01-42dcb0d9e42e"
+  default = "packer@pam!packer=PLACEHOLDER_TOKEN"
 }
 
 variable "template_name" {
@@ -30,7 +30,7 @@ variable "template_id" {
 source "proxmox-clone" "ubuntu-cloud" {
   proxmox_url              = "https://${var.proxmox_host}/api2/json"
   username                = "packer@pam!packer"
-  token                   = "caa32cfb-7745-49cc-9d01-42dcb0d9e42e"
+  token                   = "PLACEHOLDER_TOKEN"
   insecure_skip_tls_verify = true
   
   vm_name                 = var.template_name
@@ -71,9 +71,8 @@ source "proxmox-clone" "ubuntu-cloud" {
   # Force boot from disk only - completely disable network boot
   boot = "order=scsi0"
   
-  # SSH configuration - using sysadmin user from prepared image
+  # SSH configuration - using sysadmin user from prepared image  
   ssh_username            = "sysadmin"
-  ssh_password            = "password"
   ssh_private_key_file    = "/home/sysadmin/.ssh/sysadmin_automation_key"
   ssh_timeout             = "60m"
   ssh_port                = 22

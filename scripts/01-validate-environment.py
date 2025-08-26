@@ -200,32 +200,33 @@ def check_network_requirements() -> bool:
     """Validate network configuration"""
     print("\n[NETWORK] Checking network requirements...")
     
-    # Check for required bridges (may not exist on deployment host)
-    networks_found = []
-    for bridge in REQUIRED_NETWORKS:
-        try:
-            result = subprocess.run(
-                ["ip", "link", "show", bridge],
-                capture_output=True,
-                text=True,
-                timeout=5
-            )
-            if result.returncode == 0:
-                print(f"  ✓ Network bridge {bridge} exists on this host")
-                networks_found.append(bridge)
-            else:
-                print(f"  ! Network bridge {bridge} not found on deployment host")
-        except:
-            print(f"  ! Could not check network bridge {bridge}")
-    
-    if networks_found:
-        return True
-    else:
-        print(f"    (This is normal if deploying from external host)")
-        # Test actual application connectivity - SSH to first Proxmox host
-        print(f"  → Testing SSH connectivity to Proxmox hosts...")
-        ssh_success = False
-        for host in PROXMOX_HOSTS[:2]:  # Test first 2 hosts
+    try:
+        # Check for required bridges (may not exist on deployment host)
+        networks_found = []
+        for bridge in REQUIRED_NETWORKS:
+            try:
+                result = subprocess.run(
+                    ["ip", "link", "show", bridge],
+                    capture_output=True,
+                    text=True,
+                    timeout=5
+                )
+                if result.returncode == 0:
+                    print(f"  ✓ Network bridge {bridge} exists on this host")
+                    networks_found.append(bridge)
+                else:
+                    print(f"  ! Network bridge {bridge} not found on deployment host")
+            except:
+                print(f"  ! Could not check network bridge {bridge}")
+        
+        if networks_found:
+            return True
+        else:
+            print(f"    (This is normal if deploying from external host)")
+            # Test actual application connectivity - SSH to first Proxmox host
+            print(f"  → Testing SSH connectivity to Proxmox hosts...")
+            ssh_success = False
+            for host in PROXMOX_HOSTS[:2]:  # Test first 2 hosts
                 try:
                     result = subprocess.run(
                         ["ssh", "-o", "ConnectTimeout=5", "-o", "StrictHostKeyChecking=no", 
