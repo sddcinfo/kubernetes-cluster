@@ -1,5 +1,0 @@
-# Proxmox Configuration
-proxmox_token = "your-proxmox-api-token-here"
-
-# SSH Public Key (leave empty to use ~/.ssh/id_rsa.pub)
-ssh_public_key = ""

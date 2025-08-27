@@ -148,7 +148,7 @@ After extensive research and evaluation, the recommended approach for automating
 ### Step 2: Modular Scripts
 Each phase gets its own script:
 - `01-validate-environment.py`
-- `02-build-golden-image.sh`
+- `02-build-kubernetes-template.sh`
 - `03-provision-infrastructure.sh`
 - `04-bootstrap-kubernetes.sh`
 - `05-deploy-platform-services.sh`

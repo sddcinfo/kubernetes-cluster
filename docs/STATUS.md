@@ -37,43 +37,97 @@ This document tracks the progress of the Kubernetes cluster deployment automatio
 - **MetalLB Pool**: 10.10.1.50-79
 - **DHCP Range**: 10.10.1.100-200 (unchanged)
 
-## Pending Phases
+## Current Development Phase
 
-### Phase 3: Infrastructure Provisioning 🔄 READY
-**Status**: Configuration updated, ready for deployment  
-**Technology**: Terraform/OpenTofu with BPG Proxmox provider
+### Modular Python Architecture ✅ DESIGNED & IMPLEMENTED
+**Status**: Complete rewrite with modular, profile-based deployment system  
+**Date Completed**: August 27, 2025
 
-#### Ready Components:
-- **Updated Configurations**: Terraform configurations updated with new IP allocations
-- **VM Templates**: Golden template (9001) ready for cloning
-- **DNS Records**: All hostnames pre-configured in DNS
-- **Network Planning**: IP allocations avoid conflicts with existing infrastructure
+#### Major Architectural Changes:
+- **Unified Orchestrator**: Single `cluster-deploy.py` script replaces all existing bash scripts
+- **Profile-Based Deployment**: Pre-configured profiles for different deployment scenarios
+- **Component-Based Architecture**: Modular deployers for each cluster component
+- **Single Node Support**: Native support for single-node Kubernetes clusters
+- **Selective Rebuilding**: Ability to redeploy individual components without full rebuild
+- **Enhanced State Management**: Comprehensive state tracking across all deployment phases
 
-#### Next Steps:
-- Deploy DNS configuration: `./scripts/deploy-dns-config.sh`
-- Run Terraform: `cd terraform && terraform apply`
-- Verify VM deployment and connectivity
+#### New Components:
+- **cluster-deploy.py**: Main orchestrator with modular component deployment
+- **Kubernetes-Ready Packer Images**: Pre-installed K8s components for faster deployments
+- **Configuration Profiles**: YAML-based deployment configurations
+- **Enhanced State Tracking**: Component-level state management with metadata
 
-### Phase 4: Kubernetes Bootstrap 🔄 READY
-**Status**: Ready for implementation  
-**Technology**: kubeadm + Ansible
+#### Deployment Profiles:
+1. **Single Node**: All-in-one Kubernetes node (development/testing)
+2. **Single Master**: 1 control plane + 2 workers (small production)  
+3. **HA Cluster**: 3 control planes + 4 workers (production)
+4. **Development**: Optimized for dev/test workloads
+5. **Production**: Full enterprise deployment with all platform services
 
-#### Components:
-- Control plane initialization
-- Worker node joining
-- CNI (Cilium) deployment
-- Initial cluster configuration
+#### Component Architecture:
+- **Foundation**: DNS, SSH, basic infrastructure setup
+- **Packer Image**: Kubernetes-ready VM templates with pre-installed software
+- **Infrastructure**: VM provisioning via Terraform/OpenTofu
+- **Kubernetes**: Cluster bootstrap with kubeadm and Ansible
+- **Networking**: CNI (Cilium), load balancing, ingress
+- **Storage**: CSI drivers, persistent volume management
+- **Monitoring**: Prometheus, Grafana, alerting stack
+- **Platform Services**: Backup, certificates, dashboard, additional services
 
-### Phase 5: Platform Services 🔄 READY
-**Status**: Ready for implementation  
-**Technology**: Helm + Ansible
+## Legacy Script Analysis & Replacement
 
-#### Services to Deploy:
-- Ingress controller (NGINX)
-- Monitoring stack (Prometheus/Grafana)
-- Certificate management (cert-manager)
-- Storage provisioning (Proxmox CSI)
-- Backup solution (Velero)
+### Scripts Replaced/Consolidated ✅ ANALYZED
+**Date**: August 27, 2025
+
+#### Analysis Results:
+The following existing scripts have been analyzed and will be replaced by the modular Python architecture:
+
+1. **03-provision-infrastructure.sh** → `InfrastructureDeployer` class
+   - Hard-coded values replaced with configuration-driven approach
+   - Dynamic Terraform generation based on deployment profile
+   - Support for single-node deployments
+
+2. **deploy-cluster.py** → Enhanced `ClusterDeploymentOrchestrator` 
+   - Phase-based execution replaced with component-based deployment  
+   - Improved error handling and state management
+   - Selective component rebuilding capability
+
+3. **04-bootstrap-kubernetes.sh** → `KubernetesDeployer` class
+   - Ansible playbook generation based on profile
+   - Native single-node cluster support (master taint removal)
+   - Improved CNI integration
+
+4. **05-deploy-platform-services.sh** → Future platform service deployers
+   - Modular service deployment components
+   - Configuration-driven service selection
+   - Profile-based service inclusion
+
+#### Benefits of New Architecture:
+- **Reduced Complexity**: Single Python codebase vs mixed Bash/Python/Terraform
+- **Better Maintainability**: Object-oriented design with clear separation of concerns
+- **Enhanced Flexibility**: Profile-driven deployments for different use cases
+- **Improved Reliability**: Comprehensive error handling and timeout management
+- **State Consistency**: Unified state management across all components
+- **Faster Deployments**: Kubernetes-ready images reduce deployment time significantly
+
+## Pending Implementation
+
+### Next Steps 🔄 IN DEVELOPMENT
+**Priority**: Implement and test the new modular architecture
+
+#### Immediate Tasks:
+1. **Test Kubernetes-Ready Packer Image**: Build and validate pre-installed K8s template
+2. **Single Node Validation**: Deploy and test single-node cluster capability
+3. **Configuration Testing**: Validate YAML configuration loading and profile switching
+4. **Component Integration**: Test end-to-end deployment with new architecture
+5. **Migration Path**: Document migration from existing scripts to new system
+
+#### Future Enhancements:
+- **Platform Service Components**: Implement monitoring, backup, certificate deployers
+- **Multi-Cluster Support**: Extend architecture for multiple cluster management
+- **GitOps Integration**: Add ArgoCD/Flux deployment capabilities
+- **Cluster Scaling**: Dynamic node addition/removal functionality
+- **Backup/Restore**: Comprehensive cluster backup and disaster recovery
 
 ## Technical Improvements
 

@@ -101,7 +101,7 @@ The deployment follows a structured 5-phase approach:
 git clone https://github.com/sddcinfo/kubernetes-cluster.git
 cd kubernetes-cluster
 
-# Phase 1-2: Prepare environment and create golden images
+# Phase 1-2: Prepare environment and cloud-base template
 python3 scripts/cluster-foundation-setup.py
 
 # Phase 3-5: Deploy infrastructure and Kubernetes
@@ -131,8 +131,7 @@ python3 scripts/cluster-foundation-setup.py
 # - Base template creation with safety checks
 # - Packer configuration with automated token injection
 # - State tracking to enable safe re-runs
-# - Golden image can then be built with:
-packer build packer/ubuntu-golden.pkr.hcl
+# - Ready for Kubernetes template creation
 
 # Phase 3-5: Infrastructure and Kubernetes deployment
 python3 scripts/deploy-dns-config.py   # Deploy DNS configuration
@@ -146,16 +145,22 @@ cd ../scripts
 
 ```bash
 # Check deployment status
-python3 deploy-cluster.py status
+python3 cluster-deploy.py status
 
-# Skip completed phases
-python3 deploy-cluster.py deploy --skip-phases VALIDATE BUILD_IMAGE
+# Deploy single node cluster
+python3 cluster-deploy.py deploy --profile single-node
 
-# Force complete rebuild
-python3 deploy-cluster.py deploy --force-rebuild
+# Deploy HA cluster (default)
+python3 cluster-deploy.py deploy --profile ha-cluster
+
+# Deploy specific components
+python3 cluster-deploy.py deploy --components foundation packer-image infrastructure
+
+# Force redeploy existing components
+python3 cluster-deploy.py deploy --force
 
 # Clean up all resources
-python3 deploy-cluster.py cleanup
+python3 cluster-deploy.py cleanup
 ```
 
 ## Configuration
@@ -302,9 +307,9 @@ kubectl describe nodes
 
 **Complete Environment Reset**
 ```bash
-python3 deploy-cluster.py cleanup  # Remove all resources
-python3 deploy-cluster.py reset    # Clear deployment state
-python3 deploy-cluster.py deploy   # Fresh deployment
+python3 cluster-deploy.py cleanup  # Remove all resources
+rm ~/.kube-cluster/cluster-state.json  # Clear deployment state
+python3 cluster-deploy.py deploy   # Fresh deployment
 ```
 
 ## Production Considerations

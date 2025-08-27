@@ -45,10 +45,8 @@ class Config:
     def __init__(self):
         self.PROXMOX_HOST = "10.10.1.21"
         self.BASE_VM_ID = "9002"
-        self.GOLDEN_VM_ID = "9001"
         self.MODIFIED_IMAGE = "ubuntu-24.04-cloudimg-amd64-modified.img"
         self.VM_NAME = "ubuntu-cloud-base"
-        self.GOLDEN_VM_NAME = "ubuntu-2404-golden"
         self.IMAGE_URL = "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img"
         self.REQUIRED_NETWORKS = ["vmbr0"]
         self.SSH_KEY_PATH = Path("/home/sysadmin/.ssh/sysadmin_automation_key")
@@ -60,6 +58,7 @@ class Config:
         
     def _load_custom_config(self):
         """Load custom configuration from config file if exists"""
+        # Legacy JSON config support - deprecated in favor of YAML configs
         config_file = Path("scripts/foundation-config.json")
         if config_file.exists():
             try:
@@ -608,21 +607,9 @@ export PROXMOX_USER="packer@pam!packer"
             env_file.write_text(env_content)
             log_info(f"Created Packer environment file: {env_file}")
             
-            # Write variables file
-            packer_vars = {
-                "proxmox_host": f"{self.config.PROXMOX_HOST}:8006",
-                "proxmox_token": token,
-                "template_name": self.config.GOLDEN_VM_NAME,
-                "template_id": self.config.GOLDEN_VM_ID
-            }
-            
-            vars_file = packer_dir / "variables.json"
-            with vars_file.open('w') as f:
-                json.dump(packer_vars, f, indent=2)
-            log_info(f"Updated Packer variables file: {vars_file}")
-            
-            # Update Packer HCL file
-            self._update_packer_hcl(token)
+            # Golden template removed - using cloud-base directly
+            # No Packer configuration needed for deprecated golden template
+            log_info("Golden template deprecated - using cloud-base directly")
             
             if not refresh_only:
                 self.state.mark_phase_complete(phase)
@@ -636,7 +623,7 @@ export PROXMOX_USER="packer@pam!packer"
     def _update_packer_hcl(self, token: str):
         """Update Packer HCL configuration"""
         project_root = Path(__file__).parent.parent
-        packer_file = project_root / "packer" / "ubuntu-golden.pkr.hcl"
+        # Note: Golden template removed - using cloud-base directly
         
         if not packer_file.exists():
             log_warning("Packer HCL file not found, skipping update")
@@ -705,7 +692,7 @@ export PROXMOX_USER="packer@pam!packer"
         print("=" * 70)
         print(f"Base template: {self.config.VM_NAME} (ID: {self.config.BASE_VM_ID})")
         print(f"State tracking: {self.config.STATE_FILE}")
-        print(f"Packer ready: packer build -var-file=variables.json packer/ubuntu-golden.pkr.hcl")
+        print(f"Using cloud-base template directly - no golden template needed")
         print("=" * 70)
         
         return True
