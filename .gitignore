@@ -35,6 +35,12 @@ venv/
 # Deployment state
 deployment-state.json
 *.state
+*foundation-state*
+.foundation-state*
+
+# Runtime state files (now stored in ~/.kube-cluster/)
+scripts/.foundation-state.json
+scripts/scripts/.foundation-state.json
 
 # SSH keys (if accidentally added)
 id_rsa

@@ -53,7 +53,7 @@ class Config:
         self.REQUIRED_NETWORKS = ["vmbr0"]
         self.SSH_KEY_PATH = Path("/home/sysadmin/.ssh/sysadmin_automation_key")
         self.SSH_PUB_KEY_PATH = Path("/home/sysadmin/.ssh/sysadmin_automation_key.pub")
-        self.STATE_FILE = Path("scripts/.foundation-state.json")
+        self.STATE_FILE = Path.home() / ".kube-cluster" / "foundation-state.json"
         
         # Load custom config if exists
         self._load_custom_config()
