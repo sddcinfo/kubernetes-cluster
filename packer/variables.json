@@ -1,6 +1,6 @@
 {
   "proxmox_host": "10.10.1.21:8006",
-  "proxmox_token": "9aef2dd3-0499-416e-8441-3c2a258eed1e",
+  "proxmox_token": "9d7fb896-ebf3-48b5-9a0d-7161b3c03375",
   "template_name": "ubuntu-2404-golden",
   "template_id": "9001"
 }

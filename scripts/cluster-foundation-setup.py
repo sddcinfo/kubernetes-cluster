@@ -153,17 +153,23 @@ class FoundationSetup:
             log_warning("Force rebuild enabled - all phases will be re-executed")
             self.state.reset_state()
     
-    def run_command(self, cmd: str, check: bool = True, capture_output: bool = True) -> subprocess.CompletedProcess:
-        """Run a command with proper error handling"""
+    def run_command(self, cmd: str, check: bool = True, capture_output: bool = True, timeout: int = 30) -> subprocess.CompletedProcess:
+        """Run a command with proper error handling and timeout"""
         try:
             result = subprocess.run(
                 cmd, 
                 shell=True, 
                 check=check, 
                 capture_output=capture_output,
-                text=True
+                text=True,
+                timeout=timeout
             )
             return result
+        except subprocess.TimeoutExpired:
+            log_error(f"Command timed out after {timeout} seconds: {cmd}")
+            if check:
+                raise
+            return subprocess.CompletedProcess(cmd, 1, '', f'Command timed out after {timeout} seconds')
         except subprocess.CalledProcessError as e:
             if check:
                 log_error(f"Command failed: {cmd}")
@@ -171,10 +177,11 @@ class FoundationSetup:
                 raise
             return e
     
-    def ssh_command(self, cmd: str, check: bool = True) -> subprocess.CompletedProcess:
-        """Run a command on the Proxmox host via SSH"""
-        full_cmd = f"ssh root@{self.config.PROXMOX_HOST} \"{cmd}\""
-        return self.run_command(full_cmd, check=check)
+    def ssh_command(self, cmd: str, check: bool = True, timeout: int = 30) -> subprocess.CompletedProcess:
+        """Run a command on the Proxmox host via SSH with proper timeout options"""
+        ssh_opts = "-o ConnectTimeout=10 -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o StrictHostKeyChecking=no"
+        full_cmd = f"ssh {ssh_opts} root@{self.config.PROXMOX_HOST} \"{cmd}\""
+        return self.run_command(full_cmd, check=check, timeout=timeout)
     
     def check_vm_in_use(self, vm_id: str) -> bool:
         """Check if VM is currently running or has dependent resources"""
@@ -451,32 +458,32 @@ class FoundationSetup:
         try:
             # Download and modify image
             log_info("Downloading Ubuntu 24.04 Noble cloud image...")
-            self.ssh_command(f"cd /mnt/rbd-iso/template/images && wget -q -O {self.config.MODIFIED_IMAGE} {self.config.IMAGE_URL}")
+            self.ssh_command(f"cd /mnt/rbd-iso/template/images && wget -q -O {self.config.MODIFIED_IMAGE} {self.config.IMAGE_URL}", timeout=300)  # 5 minutes
             
-            log_info("Installing packages and configuring image...")
-            self.ssh_command(f"cd /mnt/rbd-iso/template/images && virt-customize --quiet --install qemu-guest-agent,grub-efi-amd64,grub-efi-amd64-signed,shim-signed -a {self.config.MODIFIED_IMAGE}")
+            log_info("Installing packages and configuring image (this may take several minutes)...")
+            self.ssh_command(f"cd /mnt/rbd-iso/template/images && virt-customize --quiet --install qemu-guest-agent,grub-efi-amd64,grub-efi-amd64-signed,shim-signed -a {self.config.MODIFIED_IMAGE}", timeout=600)  # 10 minutes
             
             # Reset machine-id and configure user
-            result = self.ssh_command(f"cd /mnt/rbd-iso/template/images && virt-sysprep --quiet -a {self.config.MODIFIED_IMAGE}", check=False)
+            result = self.ssh_command(f"cd /mnt/rbd-iso/template/images && virt-sysprep --quiet -a {self.config.MODIFIED_IMAGE}", check=False, timeout=300)
             if result.returncode != 0:
                 log_warning("virt-sysprep failed, continuing anyway")
             
             # Setup sysadmin user
             log_info("Configuring sysadmin user...")
-            self.ssh_command(f"cd /mnt/rbd-iso/template/images && virt-customize --quiet -a {self.config.MODIFIED_IMAGE} --run-command 'useradd -m -s /bin/bash sysadmin && usermod -aG sudo sysadmin && echo \"sysadmin:password\" | chpasswd'")
+            self.ssh_command(f"cd /mnt/rbd-iso/template/images && virt-customize --quiet -a {self.config.MODIFIED_IMAGE} --run-command 'useradd -m -s /bin/bash sysadmin && usermod -aG sudo sysadmin && echo \"sysadmin:password\" | chpasswd'", timeout=300)
             
             # Inject SSH key
             self.run_command(f"scp {self.config.SSH_PUB_KEY_PATH} root@{self.config.PROXMOX_HOST}:/tmp/")
-            self.ssh_command(f"cd /mnt/rbd-iso/template/images && virt-customize --quiet -a {self.config.MODIFIED_IMAGE} --ssh-inject sysadmin:file:/tmp/sysadmin_automation_key.pub")
+            self.ssh_command(f"cd /mnt/rbd-iso/template/images && virt-customize --quiet -a {self.config.MODIFIED_IMAGE} --ssh-inject sysadmin:file:/tmp/sysadmin_automation_key.pub", timeout=300)
             
             # Setup sudo access
-            self.ssh_command(f"cd /mnt/rbd-iso/template/images && virt-customize --quiet -a {self.config.MODIFIED_IMAGE} --run-command 'echo \\\"sysadmin ALL=(ALL) NOPASSWD:ALL\\\" > /etc/sudoers.d/sysadmin'")
+            self.ssh_command(f"cd /mnt/rbd-iso/template/images && virt-customize --quiet -a {self.config.MODIFIED_IMAGE} --run-command 'echo \\\"sysadmin ALL=(ALL) NOPASSWD:ALL\\\" > /etc/sudoers.d/sysadmin'", timeout=300)
             
             # EFI boot setup
             log_info("Configuring EFI boot...")
-            result = self.ssh_command(f"cd /mnt/rbd-iso/template/images && virt-customize --quiet -a {self.config.MODIFIED_IMAGE} --run-command 'mkdir -p /boot/efi && mount /dev/sda15 /boot/efi || mount /dev/vda15 /boot/efi'", check=False)
-            result = self.ssh_command(f"cd /mnt/rbd-iso/template/images && virt-customize --quiet -a {self.config.MODIFIED_IMAGE} --run-command 'update-grub && grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=ubuntu --recheck'", check=False)
-            result = self.ssh_command(f"cd /mnt/rbd-iso/template/images && virt-customize --quiet -a {self.config.MODIFIED_IMAGE} --run-command 'mkdir -p /boot/efi/EFI/BOOT && cp /boot/efi/EFI/ubuntu/grubx64.efi /boot/efi/EFI/BOOT/BOOTX64.EFI 2>/dev/null || cp /boot/efi/EFI/ubuntu/shimx64.efi /boot/efi/EFI/BOOT/BOOTX64.EFI'", check=False)
+            result = self.ssh_command(f"cd /mnt/rbd-iso/template/images && virt-customize --quiet -a {self.config.MODIFIED_IMAGE} --run-command 'mkdir -p /boot/efi && mount /dev/sda15 /boot/efi || mount /dev/vda15 /boot/efi'", check=False, timeout=300)
+            result = self.ssh_command(f"cd /mnt/rbd-iso/template/images && virt-customize --quiet -a {self.config.MODIFIED_IMAGE} --run-command 'update-grub && grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=ubuntu --recheck'", check=False, timeout=300)
+            result = self.ssh_command(f"cd /mnt/rbd-iso/template/images && virt-customize --quiet -a {self.config.MODIFIED_IMAGE} --run-command 'mkdir -p /boot/efi/EFI/BOOT && cp /boot/efi/EFI/ubuntu/grubx64.efi /boot/efi/EFI/BOOT/BOOTX64.EFI 2>/dev/null || cp /boot/efi/EFI/ubuntu/shimx64.efi /boot/efi/EFI/BOOT/BOOTX64.EFI'", check=False, timeout=300)
             
             self.state.mark_phase_complete(phase)
             log_info("Cloud image preparation completed")
@@ -490,13 +497,13 @@ class FoundationSetup:
         """Create base VM template with safety checks"""
         phase = "base_template"
         if self.state.is_phase_complete(phase) and phase not in self.skip_phases:
-            # Verify template still exists
-            result = self.ssh_command(f"qm status {self.config.BASE_VM_ID}", check=False)
+            # Verify template still exists AND is actually a template
+            result = self.ssh_command(f"qm config {self.config.BASE_VM_ID} | grep 'template: 1'", check=False)
             if result.returncode == 0:
-                log_skip("Base template already created and exists")
+                log_skip("Base template already created and properly configured")
                 return True
             else:
-                log_warning("Base template missing, re-creating...")
+                log_warning("Base template missing or not properly configured, re-creating...")
         
         log_step("Creating base VM template...")
         
@@ -523,8 +530,8 @@ class FoundationSetup:
             self.ssh_command(f"qm set {self.config.BASE_VM_ID} --efidisk0 rbd:4,efitype=4m,pre-enrolled-keys=0")
             
             # Import and configure disk
-            log_info("Importing disk...")
-            self.ssh_command(f"qm importdisk {self.config.BASE_VM_ID} /mnt/rbd-iso/template/images/{self.config.MODIFIED_IMAGE} rbd --format raw")
+            log_info("Importing disk (this may take several minutes)...")
+            self.ssh_command(f"qm importdisk {self.config.BASE_VM_ID} /mnt/rbd-iso/template/images/{self.config.MODIFIED_IMAGE} rbd --format raw", timeout=600)  # 10 minutes
             self.ssh_command(f"qm set {self.config.BASE_VM_ID} --scsi0 rbd:vm-{self.config.BASE_VM_ID}-disk-1")
             self.ssh_command(f"qm set {self.config.BASE_VM_ID} --boot order=scsi0 --bootdisk scsi0")
             

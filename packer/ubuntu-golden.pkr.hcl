@@ -14,7 +14,7 @@ variable "proxmox_host" {
 
 variable "proxmox_token" {
   type    = string
-  default = ""
+  default = "9d7fb896-ebf3-48b5-9a0d-7161b3c03375"
 }
 
 variable "template_name" {
