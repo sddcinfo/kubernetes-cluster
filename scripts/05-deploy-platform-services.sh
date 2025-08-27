@@ -66,7 +66,7 @@ data:
     - name: default
       protocol: layer2
       addresses:
-      - 10.10.1.150-10.10.1.180
+      - 10.10.1.50-10.10.1.79
 EOF
 
 kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.14.5/config/manifests/metallb-native.yaml

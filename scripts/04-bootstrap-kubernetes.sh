@@ -15,7 +15,7 @@ ANSIBLE_DIR="../ansible"
 KUBE_VERSION="1.30.0"
 POD_NETWORK="10.244.0.0/16"
 SERVICE_NETWORK="10.96.0.0/12"
-CONTROL_VIP="10.10.1.99"
+CONTROL_VIP="10.10.1.30"
 
 echo "============================================================"
 echo "PHASE 4: BOOTSTRAP KUBERNETES CLUSTER"

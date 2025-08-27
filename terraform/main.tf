@@ -43,7 +43,7 @@ variable "proxmox_password" {
 variable "golden_template_id" {
   description = "Golden template VM ID to clone from"
   type        = number
-  default     = 9003
+  default     = 9001
 }
 
 variable "ssh_public_key" {
@@ -54,64 +54,65 @@ variable "ssh_public_key" {
 
 # Locals for VM configurations
 locals {
-  # Control plane nodes configuration
+  # Control plane nodes configuration - Updated for new IP allocation
+  # VIP 10.10.1.30 reserved for HA control plane endpoint
   control_plane_nodes = {
-    "k8s-control-01" = {
+    "k8s-control-1" = {
       node_name   = "node1"
-      vm_id       = 101
-      ip_address  = "10.10.1.30"
-      cores       = 4
-      memory      = 8192
-      disk_size   = 64
-    }
-    "k8s-control-02" = {
-      node_name   = "node2"
-      vm_id       = 102
+      vm_id       = 131
       ip_address  = "10.10.1.31"
       cores       = 4
       memory      = 8192
       disk_size   = 64
     }
-    "k8s-control-03" = {
-      node_name   = "node3"
-      vm_id       = 103
+    "k8s-control-2" = {
+      node_name   = "node2"
+      vm_id       = 132
       ip_address  = "10.10.1.32"
+      cores       = 4
+      memory      = 8192
+      disk_size   = 64
+    }
+    "k8s-control-3" = {
+      node_name   = "node3"
+      vm_id       = 133
+      ip_address  = "10.10.1.33"
       cores       = 4
       memory      = 8192
       disk_size   = 64
     }
   }
   
-  # Worker nodes configuration
+  # Worker nodes configuration - Updated for new IP allocation
   worker_nodes = {
-    "k8s-worker-01" = {
+    "k8s-worker-1" = {
       node_name   = "node1"
-      vm_id       = 111
-      ip_address  = "10.10.1.33"
+      vm_id       = 140
+      ip_address  = "10.10.1.40"
       cores       = 6
       memory      = 24576
       disk_size   = 128
     }
-    "k8s-worker-02" = {
+    "k8s-worker-2" = {
       node_name   = "node2"
-      vm_id       = 112
-      ip_address  = "10.10.1.34"
+      vm_id       = 141
+      ip_address  = "10.10.1.41"
       cores       = 6
       memory      = 24576
       disk_size   = 128
     }
-    "k8s-worker-03" = {
+    "k8s-worker-3" = {
       node_name   = "node3"
-      vm_id       = 113
-      ip_address  = "10.10.1.35"
+      vm_id       = 142
+      ip_address  = "10.10.1.42"
       cores       = 6
       memory      = 24576
       disk_size   = 128
     }
-    "k8s-worker-04" = {
+    "k8s-worker-4" = {
       node_name   = "node4"
-      vm_id       = 114
-      ip_address  = "10.10.1.36"
+      vm_id       = 143
+      ip_address  = "10.10.1.43"
       cores       = 6
       memory      = 24576
       disk_size   = 128
@@ -229,7 +230,7 @@ resource "proxmox_virtual_environment_vm" "control_plane" {
     user_account {
       keys     = var.ssh_public_key != "" ? [var.ssh_public_key] : [file("~/.ssh/sysadmin_automation_key.pub")]
       password = "kubernetes"
-      username = "ubuntu"
+      username = "sysadmin"
     }
     
     # Hostname set via cloud-init user-data
@@ -307,9 +308,9 @@ resource "proxmox_virtual_environment_vm" "workers" {
     }
     
     user_account {
-      keys     = var.ssh_public_key != "" ? [var.ssh_public_key] : [file("~/.ssh/sysladmin_automation_key.pub")]
+      keys     = var.ssh_public_key != "" ? [var.ssh_public_key] : [file("~/.ssh/sysadmin_automation_key.pub")]
       password = "kubernetes"
-      username = "ubuntu"
+      username = "sysadmin"
     }
     
     # Hostname set via cloud-init user-data
