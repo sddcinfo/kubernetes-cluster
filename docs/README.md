@@ -44,7 +44,7 @@ This directory contains comprehensive documentation for the Enterprise Kubernete
 
 ### Implementation
 1. Run foundation setup: `python3 scripts/cluster-foundation-setup.py`
-2. Deploy DNS configuration: `./scripts/deploy-dns-config.sh`
+2. Deploy DNS configuration: `python3 scripts/deploy-dns-config.py`
 3. Follow phase-by-phase deployment in [STATUS.md](STATUS.md)
 
 ### Configuration Details

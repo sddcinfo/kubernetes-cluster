@@ -74,7 +74,7 @@ dashboard.k8s.sddc.info    -> ingress.k8s.sddc.info
 
 ### 1. Deploy DNS Configuration
 ```bash
-./scripts/deploy-dns-config.sh
+python3 scripts/deploy-dns-config.py
 ```
 
 ### 2. Verify DNS Resolution
@@ -101,7 +101,7 @@ terraform apply
 ### New Files
 - `docs/IP_ALLOCATION.md` - Complete IP allocation strategy
 - `configs/dnsmasq.d/kubernetes.conf` - Kubernetes DNS configuration
-- `scripts/deploy-dns-config.sh` - DNS deployment script
+- `scripts/deploy-dns-config.py` - DNS deployment script (Python)
 - `docs/DNS_CONFIGURATION.md` - This documentation
 
 ### Updated Files

@@ -19,7 +19,7 @@ This document tracks the progress of the Kubernetes cluster deployment automatio
 
 #### Key Files:
 - `scripts/cluster-foundation-setup.py` - Intelligent foundation setup with state tracking
-- `scripts/deploy-dns-config.sh` - DNS configuration deployment
+- `scripts/deploy-dns-config.py` - DNS configuration deployment (Python)
 - `configs/dnsmasq.d/kubernetes.conf` - Kubernetes DNS configuration 
 - `docs/IP_ALLOCATION.md` - Network allocation strategy
 - `docs/DNS_CONFIGURATION.md` - DNS configuration details

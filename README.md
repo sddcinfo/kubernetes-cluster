@@ -105,7 +105,7 @@ cd kubernetes-cluster
 python3 scripts/cluster-foundation-setup.py
 
 # Phase 3-5: Deploy infrastructure and Kubernetes
-./scripts/deploy-dns-config.sh       # Deploy DNS configuration
+python3 scripts/deploy-dns-config.py   # Deploy DNS configuration
 cd terraform && terraform apply      # Deploy VMs
 cd ../scripts
 ./04-bootstrap-kubernetes.sh         # Initialize cluster
@@ -135,7 +135,7 @@ python3 scripts/cluster-foundation-setup.py
 packer build packer/ubuntu-golden.pkr.hcl
 
 # Phase 3-5: Infrastructure and Kubernetes deployment
-./scripts/deploy-dns-config.sh       # Deploy DNS configuration
+python3 scripts/deploy-dns-config.py   # Deploy DNS configuration
 cd terraform && terraform apply      # Deploy VMs  
 cd ../scripts
 ./04-bootstrap-kubernetes.sh         # Initialize cluster
@@ -181,7 +181,7 @@ The system uses a modular DNS approach:
 
 ```bash
 # Deploy Kubernetes DNS configuration (coexists with existing infrastructure)
-./scripts/deploy-dns-config.sh
+python3 scripts/deploy-dns-config.py
 ```
 
 This creates DNS records for all Kubernetes components without affecting existing infrastructure. See [DNS_CONFIGURATION.md](docs/DNS_CONFIGURATION.md) for details.
