@@ -50,6 +50,21 @@ After extensive research and evaluation, the recommended approach for automating
 - Wide community adoption
 - Simple YAML syntax
 
+### Container Networking: Cilium ✅
+
+**Why Cilium over Calico:**
+- **eBPF Performance**: Runs in kernel space, bypassing iptables for better performance
+- **Advanced Security**: Layer 7 network policies (HTTP/gRPC/Kafka protocol-aware)
+- **Identity-based Security**: Not just IP-based, supports service mesh without sidecars
+- **Observability**: Built-in Hubble for deep network visibility and flow monitoring
+- **Modern Features**: LoadBalancer implementation, Ingress capabilities, multi-cluster networking
+- **Resource Efficiency**: Lower CPU and memory overhead on virtualized infrastructure
+
+**Calico Comparison:**
+- **Calico Advantages**: More mature, simpler troubleshooting, wider adoption
+- **Calico Limitations**: iptables-based (higher overhead), limited Layer 7 capabilities
+- **Enterprise Context**: Cilium's advanced features justify the learning curve for production deployments
+
 ### Orchestration: Python with Async/Await ✅
 
 **Why Python:**
@@ -151,7 +166,6 @@ Main orchestrator script:
 kubernetes-cluster/
 ├── README.md                 # Main documentation
 ├── ARCHITECTURE.md          # This file - approach and decisions
-├── requirements.txt         # Python dependencies
 ├── deploy.py               # Main orchestrator
 │
 ├── scripts/                # Phase-based scripts

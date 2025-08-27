@@ -23,7 +23,7 @@ This solution provides comprehensive automation for deploying and managing produ
 | **Infrastructure** | OpenTofu | Declarative infrastructure provisioning |
 | **Configuration** | Ansible | Idempotent configuration management |
 | **Orchestration** | Python 3.11+ | Deployment coordination and state tracking |
-| **Container Network** | Cilium | eBPF-based CNI with security policies |
+| **Container Network** | Cilium | eBPF-based CNI with advanced security and observability |
 | **Storage** | Proxmox CSI | Dynamic persistent volume provisioning |
 | **Load Balancing** | MetalLB | Bare-metal LoadBalancer service implementation |
 
@@ -41,11 +41,16 @@ The solution deploys a production-grade Kubernetes cluster with the following co
 ### Network Configuration
 
 ```
-Control Plane VIP:    10.10.1.99
-Control Plane Nodes:  10.10.1.100-102
-Worker Nodes:         10.10.1.110-113
-MetalLB IP Pool:      10.10.1.150-180
+Control Plane VIP:    10.10.1.30
+Control Plane Nodes:  10.10.1.31-33 (3 nodes)
+Worker Nodes:         10.10.1.40-49 (10 IPs reserved, 4 initially deployed)
+MetalLB Pool:         10.10.1.50-79 (30 IPs for LoadBalancer services)
+Infrastructure:       10.10.1.80-89 (monitoring, logging, registry)
+Future Expansion:     10.10.1.90-99
+DHCP Range:           10.10.1.100-200 (unchanged, for dynamic clients)
 ```
+
+For complete network allocation details, see [IP_ALLOCATION.md](docs/IP_ALLOCATION.md)
 
 ## Prerequisites
 
@@ -54,7 +59,7 @@ MetalLB IP Pool:      10.10.1.150-180
 - **Proxmox VE 8.0+** cluster with minimum 4 nodes
 - **Hardware per node**: 8+ CPU cores, 32GB+ RAM, 500GB+ storage
 - **Storage**: Ceph RBD or similar distributed storage configured
-- **Networking**: Dedicated bridge interface (vmbr1) configured
+- **Networking**: Bridge interface (vmbr0) configured for cluster traffic
 - **DNS**: Forward and reverse DNS resolution configured
 
 ### Software Dependencies
@@ -67,8 +72,7 @@ sudo apt install -y python3 python3-pip ansible packer kubectl
 # Install OpenTofu (recommended over Terraform)
 curl -sSL https://get.opentofu.org/install.sh | bash
 
-# Install Python dependencies
-pip3 install -r requirements.txt
+# Foundation setup script uses only Python standard library (no additional dependencies needed)
 ```
 
 ### Proxmox Configuration
@@ -98,52 +102,44 @@ git clone https://github.com/sddcinfo/kubernetes-cluster.git
 cd kubernetes-cluster
 
 # Phase 1-2: Prepare environment and create golden images
-python3 scripts/pre-environment.py
+python3 scripts/cluster-foundation-setup.py
 
-# Phase 3-5: Deploy infrastructure and Kubernetes (coming soon)
-python3 scripts/deploy-cluster.py deploy
+# Phase 3-5: Deploy infrastructure and Kubernetes
+./scripts/deploy-dns-config.sh       # Deploy DNS configuration
+cd terraform && terraform apply      # Deploy VMs
+cd ../scripts
+./04-bootstrap-kubernetes.sh         # Initialize cluster
+./05-deploy-platform-services.sh     # Deploy services
 ```
 
-### Current Status
+### Implementation Status
 
-**Phase 1-2 ✅ UNIFIED** - Complete pre-environment setup with single script:
-- Environment validation with comprehensive checks
-- Automated Packer user creation with proper ACL permissions
-- RBD-ISO storage setup for multi-OS support
-- Ubuntu 24.04 cloud image preparation with qemu-guest-agent
-- Base template creation with EFI boot support
-- Golden image build with automatic token management
-
-**Phase 3 🔄 READY** - Infrastructure provisioning with OpenTofu  
-**Phase 4 🔄 READY** - Kubernetes bootstrap with kubeadm  
-**Phase 5 🔄 READY** - Platform services deployment  
-
-Working templates on Proxmox:
-- Base: `ubuntu-cloud-base` (VM ID: 9002)
-- Golden: `ubuntu-2404-golden` (VM ID: 9001)
+For current implementation status and progress details, see [STATUS.md](docs/STATUS.md)
 
 ### Individual Phase Execution
 
 For granular control or troubleshooting:
 
 ```bash
-# Phase 1-2: Complete pre-environment setup (unified)
-python3 scripts/pre-environment.py
-# This single script handles:
-# - Environment validation
-# - Packer user setup with ACL permissions
+# Phase 1-2: Complete foundation setup (intelligent with state tracking)
+python3 scripts/cluster-foundation-setup.py
+# This intelligent script handles:
+# - Environment validation with re-run optimization
+# - Packer user setup with ACL permissions and token management
 # - RBD-ISO storage configuration
-# - Cloud image preparation
-# - Base template creation
-# - Packer configuration with tokens
+# - Cloud image preparation with existence checking
+# - Base template creation with safety checks
+# - Packer configuration with automated token injection
+# - State tracking to enable safe re-runs
 # - Golden image can then be built with:
 packer build packer/ubuntu-golden.pkr.hcl
 
 # Phase 3-5: Infrastructure and Kubernetes deployment
-cd scripts
-./03-provision-infrastructure.sh  
-./04-bootstrap-kubernetes.sh
-./05-deploy-platform-services.sh
+./scripts/deploy-dns-config.sh       # Deploy DNS configuration
+cd terraform && terraform apply      # Deploy VMs  
+cd ../scripts
+./04-bootstrap-kubernetes.sh         # Initialize cluster
+./05-deploy-platform-services.sh     # Deploy services
 ```
 
 ### Deployment Management
@@ -179,19 +175,37 @@ POD_NETWORK="10.244.0.0/16"     # Pod CIDR
 SERVICE_NETWORK="10.96.0.0/12"  # Service CIDR
 ```
 
+### DNS Configuration
+
+The system uses a modular DNS approach:
+
+```bash
+# Deploy Kubernetes DNS configuration (coexists with existing infrastructure)
+./scripts/deploy-dns-config.sh
+```
+
+This creates DNS records for all Kubernetes components without affecting existing infrastructure. See [DNS_CONFIGURATION.md](docs/DNS_CONFIGURATION.md) for details.
+
 ### Proxmox Integration
 
-Update connection parameters in `terraform/main.tf`:
+Packer user and permissions are automatically configured by the pre-environment script. The setup includes:
+- Packer user creation with comprehensive permissions
+- API token generation and management
+- Automatic configuration updates
 
-```hcl
-variable "proxmox_host" {
-  default = "10.10.1.21"
-}
+For manual configuration details, see `scripts/cluster-foundation-setup.py`.
 
-variable "proxmox_token" {
-  default = "automation@pam!deploy=<token-secret>"
-}
-```
+## Documentation
+
+This project includes comprehensive documentation:
+
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** - Technology selection and design decisions  
+- **[docs/STATUS.md](docs/STATUS.md)** - Current implementation status and progress
+- **[docs/IP_ALLOCATION.md](docs/IP_ALLOCATION.md)** - Complete network allocation strategy
+- **[docs/DNS_CONFIGURATION.md](docs/DNS_CONFIGURATION.md)** - Modular DNS configuration approach
+- **[docs/README.md](docs/README.md)** - Documentation index and navigation
+
+See the [docs directory](docs/) for the complete documentation index.
 
 ## Cluster Access
 
