@@ -119,6 +119,13 @@ class StateManager:
         }
         self.save_state()
     
+    def invalidate_phase(self, phase: str):
+        """Invalidate a phase when resources are detected as missing"""
+        if phase in self.state["phases"]:
+            log_info(f"Invalidating cached state for phase: {phase}")
+            del self.state["phases"][phase]
+            self.save_state()
+    
     def mark_resource_created(self, resource_type: str, resource_id: str, details: Dict = None):
         """Track created resources"""
         if resource_type not in self.state["resources"]:
@@ -300,8 +307,14 @@ class FoundationSetup:
         """Install tools and setup RBD-ISO storage"""
         phase = "tools_storage"
         if self.state.is_phase_complete(phase) and phase not in self.skip_phases:
-            log_skip("Tools and storage setup already completed")
-            return True
+            # Verify RBD storage is still properly mounted
+            result = self.ssh_command("test -d /mnt/rbd-iso/template/images", check=False)
+            if result.returncode == 0:
+                log_skip("Tools and storage setup already completed")
+                return True
+            else:
+                log_warning("RBD storage missing, invalidating cached state and re-creating...")
+                self.state.invalidate_phase(phase)
         
         log_step("Setting up tools and storage...")
         
@@ -368,12 +381,17 @@ class FoundationSetup:
             phase not in self.skip_phases and 
             not self.force_rebuild):
             
-            # Verify token still works
-            if self._verify_packer_token(cached_token):
+            # Verify user exists and token still works
+            user_check = self.ssh_command("pveum user list | grep 'packer@pam'", check=False)
+            if user_check.returncode != 0:
+                log_warning("Packer user missing, invalidating cached state and re-creating...")
+                self.state.invalidate_phase(phase)
+            elif self._verify_packer_token(cached_token):
                 log_skip("Packer user already configured and token verified")
                 return cached_token
             else:
                 log_warning("Cached token is invalid, regenerating...")
+                self.state.invalidate_phase(phase)
         
         log_step("Setting up Packer user and permissions...")
         
@@ -451,7 +469,8 @@ class FoundationSetup:
                 log_skip("Cloud image already prepared and exists")
                 return True
             else:
-                log_warning("Cloud image missing, re-creating...")
+                log_warning("Cloud image missing, invalidating cached state and re-creating...")
+                self.state.invalidate_phase(phase)
         
         log_step("Preparing cloud image...")
         
@@ -503,7 +522,8 @@ class FoundationSetup:
                 log_skip("Base template already created and properly configured")
                 return True
             else:
-                log_warning("Base template missing or not properly configured, re-creating...")
+                log_warning("Base template missing or not properly configured, invalidating cached state and re-creating...")
+                self.state.invalidate_phase(phase)
         
         log_step("Creating base VM template...")
         
