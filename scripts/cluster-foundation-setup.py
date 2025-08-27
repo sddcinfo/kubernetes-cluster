@@ -317,7 +317,7 @@ class FoundationSetup:
     def _install_required_tools(self) -> bool:
         """Install required tools on Proxmox host"""
         try:
-            self.ssh_command("apt-get update >/dev/null 2>&1 && apt-get install -y libguestfs-tools >/dev/null 2>&1")
+            self.ssh_command("apt-get update >/dev/null 2>&1 && apt-get install -y libguestfs-tools >/dev/null 2>&1", timeout=300)  # 5 minutes for package installation
             log_info("Required tools installed")
             return True
         except subprocess.CalledProcessError:
@@ -339,10 +339,10 @@ class FoundationSetup:
             self.ssh_command("mkdir -p /mnt/rbd-iso")
             
             # Map and format if needed
-            result = self.ssh_command("rbd map rbd/rbd-iso", check=False)
+            result = self.ssh_command("rbd map rbd/rbd-iso", check=False, timeout=60)
             result = self.ssh_command("blkid /dev/rbd/rbd/rbd-iso | grep ext4", check=False)
             if result.returncode != 0:
-                self.ssh_command("mkfs.ext4 -F /dev/rbd/rbd/rbd-iso")
+                self.ssh_command("mkfs.ext4 -F /dev/rbd/rbd/rbd-iso", timeout=60)
             
             # Mount and setup directories
             result = self.ssh_command("mount /dev/rbd/rbd/rbd-iso /mnt/rbd-iso", check=False)
@@ -427,7 +427,7 @@ class FoundationSetup:
         try:
             # Test the token by making a simple API call
             test_cmd = f'curl -s -k -H "Authorization: PVEAPIToken=packer@pam!packer={token}" https://{self.config.PROXMOX_HOST}:8006/api2/json/version'
-            result = self.run_command(test_cmd, check=False)
+            result = self.run_command(test_cmd, check=False, timeout=10)
             
             if result.returncode == 0:
                 try:
@@ -473,7 +473,7 @@ class FoundationSetup:
             self.ssh_command(f"cd /mnt/rbd-iso/template/images && virt-customize --quiet -a {self.config.MODIFIED_IMAGE} --run-command 'useradd -m -s /bin/bash sysadmin && usermod -aG sudo sysadmin && echo \"sysadmin:password\" | chpasswd'", timeout=300)
             
             # Inject SSH key
-            self.run_command(f"scp {self.config.SSH_PUB_KEY_PATH} root@{self.config.PROXMOX_HOST}:/tmp/")
+            self.run_command(f"scp -o ConnectTimeout=10 -o StrictHostKeyChecking=no {self.config.SSH_PUB_KEY_PATH} root@{self.config.PROXMOX_HOST}:/tmp/", timeout=60)
             self.ssh_command(f"cd /mnt/rbd-iso/template/images && virt-customize --quiet -a {self.config.MODIFIED_IMAGE} --ssh-inject sysadmin:file:/tmp/sysadmin_automation_key.pub", timeout=300)
             
             # Setup sudo access
@@ -539,7 +539,7 @@ class FoundationSetup:
             self.ssh_command(f"qm set {self.config.BASE_VM_ID} --ide2 rbd:cloudinit")
             
             # Configure cloud-init
-            self.run_command(f"scp {self.config.SSH_PUB_KEY_PATH} root@{self.config.PROXMOX_HOST}:/tmp/")
+            self.run_command(f"scp -o ConnectTimeout=10 -o StrictHostKeyChecking=no {self.config.SSH_PUB_KEY_PATH} root@{self.config.PROXMOX_HOST}:/tmp/", timeout=60)
             self.ssh_command(f"qm set {self.config.BASE_VM_ID} --ciuser sysadmin --cipassword password --sshkeys /tmp/sysadmin_automation_key.pub --ipconfig0 ip=dhcp")
             
             # Resize and templateize
