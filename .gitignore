@@ -21,6 +21,10 @@ packer-plugin*
 packer-shell*
 .cache/packer/
 
+# Generated Packer configuration files (contain API tokens)
+packer/variables.json
+packer/.env
+
 # Python
 __pycache__/
 *.py[cod]
