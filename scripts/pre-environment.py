@@ -223,8 +223,7 @@ def setup_packer_user() -> Optional[str]:
             # Create packer user
             ssh_command("pveum user add packer@pam --comment 'Packer automation user'")
             
-            # Set password for packer user
-            ssh_command("echo 'packer' | pveum passwd packer@pam --stdin")
+            # Skip password setup - we'll use API tokens for authentication
             
             # Create comprehensive permissions for packer user
             role_privs = "VM.Allocate,VM.Clone,VM.Config.CDROM,VM.Config.CPU,VM.Config.Cloudinit,VM.Config.Disk,VM.Config.HWType,VM.Config.Memory,VM.Config.Network,VM.Config.Options,VM.Audit,VM.PowerMgmt,Datastore.AllocateSpace,Datastore.Audit,SDN.Use,VM.GuestAgent.Audit,VM.GuestAgent.Unrestricted"
@@ -313,7 +312,7 @@ def prepare_cloud_image() -> bool:
         ssh_command(f"cd /mnt/rbd-iso/template/images && virt-customize --quiet -a {MODIFIED_IMAGE} --ssh-inject sysadmin:file:/tmp/sysadmin_automation_key.pub")
         
         log_info("Setting up sudoers for sysadmin...")
-        ssh_command(f"cd /mnt/rbd-iso/template/images && virt-customize --quiet -a {MODIFIED_IMAGE} --run-command 'echo \"sysadmin ALL=(ALL) NOPASSWD:ALL\" > /etc/sudoers.d/sysadmin'")
+        ssh_command(f"cd /mnt/rbd-iso/template/images && virt-customize --quiet -a {MODIFIED_IMAGE} --run-command 'echo \\\"sysadmin ALL=(ALL) NOPASSWD:ALL\\\" > /etc/sudoers.d/sysadmin'")
         
         log_info("Fixing EFI boot partition and installing GRUB properly...")
         result = ssh_command(f"cd /mnt/rbd-iso/template/images && virt-customize --quiet -a {MODIFIED_IMAGE} --run-command 'mkdir -p /boot/efi && mount /dev/sda15 /boot/efi || mount /dev/vda15 /boot/efi'", check=False)

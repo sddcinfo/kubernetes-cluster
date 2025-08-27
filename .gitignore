@@ -78,4 +78,5 @@ Thumbs.db
 ._*
 .Spotlight-V100
 .Trashes
-ehthumbs.db
+ehthumbs.dbpacker/variables.json
+packer/.env

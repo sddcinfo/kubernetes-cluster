@@ -97,40 +97,50 @@ The deployment follows a structured 5-phase approach:
 git clone https://github.com/sddcinfo/kubernetes-cluster.git
 cd kubernetes-cluster
 
-# Configure deployment settings
-vim terraform/terraform.tfvars  # Update Proxmox connection details
+# Phase 1-2: Prepare environment and create golden images
+python3 scripts/pre-environment.py
 
-# Execute full deployment
-cd scripts
-python3 deploy-cluster.py deploy
+# Phase 3-5: Deploy infrastructure and Kubernetes (coming soon)
+python3 scripts/deploy-cluster.py deploy
 ```
 
 ### Current Status
 
-**Phase 1 ✅ COMPLETED** - Environment validation with RBD storage support  
-**Phase 2 ✅ COMPLETED** - Ubuntu 24.04 golden image with EFI boot and qemu-guest-agent  
+**Phase 1-2 ✅ UNIFIED** - Complete pre-environment setup with single script:
+- Environment validation with comprehensive checks
+- Automated Packer user creation with proper ACL permissions
+- RBD-ISO storage setup for multi-OS support
+- Ubuntu 24.04 cloud image preparation with qemu-guest-agent
+- Base template creation with EFI boot support
+- Golden image build with automatic token management
+
 **Phase 3 🔄 READY** - Infrastructure provisioning with OpenTofu  
 **Phase 4 🔄 READY** - Kubernetes bootstrap with kubeadm  
 **Phase 5 🔄 READY** - Platform services deployment  
 
-Working golden template: `ubuntu-2404-golden` (VM ID: 9001) on Proxmox
+Working templates on Proxmox:
+- Base: `ubuntu-cloud-base` (VM ID: 9002)
+- Golden: `ubuntu-2404-golden` (VM ID: 9001)
 
 ### Individual Phase Execution
 
 For granular control or troubleshooting:
 
 ```bash
-cd scripts
-
-# Phase 1: Environment validation
-python3 01-validate-environment.py
-
-# Phase 2: Golden image creation (includes cloud image preparation)
-./prepare-cloud-image.sh      # Prepare Ubuntu cloud image with qemu-guest-agent
-./02-build-golden-image.sh     # Create base template for Packer
-packer build ../packer/ubuntu-golden.pkr.hcl  # Build golden template
+# Phase 1-2: Complete pre-environment setup (unified)
+python3 scripts/pre-environment.py
+# This single script handles:
+# - Environment validation
+# - Packer user setup with ACL permissions
+# - RBD-ISO storage configuration
+# - Cloud image preparation
+# - Base template creation
+# - Packer configuration with tokens
+# - Golden image can then be built with:
+packer build packer/ubuntu-golden.pkr.hcl
 
 # Phase 3-5: Infrastructure and Kubernetes deployment
+cd scripts
 ./03-provision-infrastructure.sh  
 ./04-bootstrap-kubernetes.sh
 ./05-deploy-platform-services.sh
