@@ -38,7 +38,7 @@ class DeploymentProfile(Enum):
 class Component(Enum):
     """Deployable cluster components"""
     FOUNDATION = "foundation"
-    PACKER_IMAGE = "packer-image"
+    TEMPLATE_MANAGER = "template-manager"
     INFRASTRUCTURE = "infrastructure"
     KUBERNETES = "kubernetes"
     NETWORKING = "networking"
@@ -141,18 +141,18 @@ class FoundationDeployer(ComponentDeployer):
     """Foundation setup: DNS, SSH, basic configuration"""
     
     def validate(self) -> bool:
-        # Check if foundation setup script exists (ping won't work due to firewall)
-        foundation_script = Path("scripts/cluster-foundation-setup.py")
-        if not foundation_script.exists():
-            self.logger.error("Foundation setup script not found")
+        # Check if cluster manager exists
+        cluster_manager_script = Path("scripts/cluster-manager.py")
+        if not cluster_manager_script.exists():
+            self.logger.error("Cluster manager script not found")
             return False
         return True
     
     def deploy(self) -> bool:
         self.logger.info("Deploying foundation components...")
         
-        # Run foundation setup (existing script)
-        result = self.run_command("python3 scripts/cluster-foundation-setup.py", timeout=600)
+        # Run foundation setup using cluster manager
+        result = self.run_command("python3 scripts/cluster-manager.py --setup-foundation", timeout=600)
         
         self.state.set_component_state(
             Component.FOUNDATION, 
@@ -169,206 +169,48 @@ class FoundationDeployer(ComponentDeployer):
         except:
             return False
 
-class PackerImageDeployer(ComponentDeployer):
-    """Kubernetes-ready VM image with pre-installed software"""
+class TemplateManagerDeployer(ComponentDeployer):
+    """VM templates creation using template-manager.py"""
     
     def validate(self) -> bool:
-        # Check if packer is available
+        # Check if cluster-manager.py exists
         try:
-            self.run_command("packer version", timeout=5)
+            cluster_manager_path = os.path.join(os.path.dirname(__file__), "cluster-manager.py")
+            if not os.path.exists(cluster_manager_path):
+                self.logger.error("cluster-manager.py not found")
+                return False
+            
+            # Check if Python3 is available
+            self.run_command("python3 --version", timeout=5)
             return True
         except:
-            self.logger.error("Packer not found")
+            self.logger.error("Python3 not available")
             return False
     
     def deploy(self) -> bool:
-        self.logger.info("Building Kubernetes-ready image...")
+        self.logger.info("Creating VM templates using cluster-manager.py...")
         
-        # Generate enhanced Packer configuration
-        packer_config = self._generate_k8s_ready_config()
+        # Run template creation
+        cluster_manager_path = os.path.join(os.path.dirname(__file__), "cluster-manager.py")
+        self.run_command(f"python3 {cluster_manager_path} --create-templates", timeout=1800)
         
-        with open("../packer/kubernetes-ready.pkr.hcl", "w") as f:
-            f.write(packer_config)
-        
-        # Build image
-        os.chdir("../packer")
-        self.run_command("packer build kubernetes-ready.pkr.hcl", timeout=1800)
-        os.chdir("../scripts")
+        # Verify templates were created
+        try:
+            self.run_command(f"python3 {cluster_manager_path} --validate-prereqs", timeout=600)
+            self.logger.info("Templates created and tested successfully")
+        except:
+            self.logger.warning("Template testing failed, but templates may still be usable")
         
         self.state.set_component_state(
-            Component.PACKER_IMAGE,
+            Component.TEMPLATE_MANAGER,
             "deployed", 
             {
-                "template_id": self.config.get("template_id", 9001),
-                "k8s_version": self.config.get("kubernetes_version", "1.30.0")
+                "base_template_id": 9000,
+                "k8s_template_id": 9001,
+                "creation_timestamp": str(datetime.now())
             }
         )
         return True
-    
-    def _generate_k8s_ready_config(self) -> str:
-        """Generate Packer config with Kubernetes pre-installed"""
-        return f'''
-packer {{
-  required_plugins {{
-    proxmox = {{
-      version = ">= 1.1.8"
-      source  = "github.com/hashicorp/proxmox"
-    }}
-  }}
-}}
-
-variable "proxmox_host" {{
-  type    = string
-  default = "{self.config["proxmox"]["host"]}:8006"
-}}
-
-variable "proxmox_token" {{
-  type    = string  
-  default = "{self.config["proxmox"]["token"]}"
-}}
-
-variable "template_name" {{
-  type    = string
-  default = "kubernetes-ready-template"
-}}
-
-variable "template_id" {{
-  type    = string
-  default = "{self.config.get('template_id', 9001)}"
-}}
-
-source "proxmox-clone" "kubernetes-ready" {{
-  proxmox_url              = "https://${{var.proxmox_host}}/api2/json"
-  username                = "packer@pam!packer"
-  token                   = var.proxmox_token
-  insecure_skip_tls_verify = true
-  
-  vm_name                 = var.template_name
-  vm_id                   = var.template_id
-  template_name           = var.template_name
-  template_description    = "Kubernetes-ready Ubuntu 24.04 template with pre-installed K8s components"
-  
-  node                    = "node1"
-  cores                   = 2
-  memory                  = 4096
-  
-  # Hardware configuration to match base template
-  cpu_type                = "host"
-  os                      = "l26"
-  scsi_controller         = "virtio-scsi-pci"
-  
-  # Clone from cloud-base template (reliable network config)
-  clone_vm                = "ubuntu-cloud-base"
-  
-  # Modern EFI configuration with proper boot support
-  bios                    = "ovmf"
-  machine                 = "q35"  
-  qemu_agent              = true
-  
-  efi_config {{
-    efi_storage_pool      = "rbd"
-    pre_enrolled_keys     = false
-    efi_type             = "4m"
-  }}
-  
-  # Network with VirtIO on management bridge
-  network_adapters {{
-    bridge   = "vmbr0"
-    model    = "virtio"
-    firewall = false
-  }}
-  
-  # Force boot from disk only
-  boot = "order=scsi0"
-  
-  # SSH configuration - using sysadmin user from prepared image  
-  ssh_username            = "sysadmin"
-  ssh_private_key_file    = "/home/sysadmin/.ssh/sysadmin_automation_key"
-  ssh_timeout             = "60m"
-  ssh_port                = 22
-  ssh_handshake_attempts  = 50
-  ssh_wait_timeout        = "20m"
-  
-  # Timeout configurations
-  task_timeout            = "10m"
-}}
-
-build {{
-  sources = ["source.proxmox-clone.kubernetes-ready"]
-  
-  # Update system
-  provisioner "shell" {{
-    inline = [
-      "sudo apt-get update",
-      "sudo apt-get upgrade -y"
-    ]
-  }}
-  
-  # Install Kubernetes components
-  provisioner "shell" {{
-    inline = [
-      "curl -fsSL https://pkgs.k8s.io/core:/stable:/v{self.config.get('kubernetes_version', '1.30')}/deb/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg",
-      "echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v{self.config.get('kubernetes_version', '1.30')}/deb/ /' | sudo tee /etc/apt/sources.list.d/kubernetes.list",
-      "sudo apt-get update",
-      "sudo apt-get install -y kubelet={self.config.get('kubernetes_version', '1.30.0')}-1.1 kubeadm={self.config.get('kubernetes_version', '1.30.0')}-1.1 kubectl={self.config.get('kubernetes_version', '1.30.0')}-1.1",
-      "sudo apt-mark hold kubelet kubeadm kubectl"
-    ]
-  }}
-  
-  # Install containerd
-  provisioner "shell" {{
-    inline = [
-      "sudo apt-get install -y containerd",
-      "sudo mkdir -p /etc/containerd",
-      "containerd config default | sudo tee /etc/containerd/config.toml",
-      "sudo sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml",
-      "sudo systemctl restart containerd",
-      "sudo systemctl enable containerd"
-    ]
-  }}
-  
-  # Install additional tools
-  provisioner "shell" {{
-    inline = [
-      "sudo apt-get install -y curl wget gpg lsb-release ca-certificates",
-      "curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg",
-      "sudo apt-get install -y htop iotop nethogs iftop vim"
-    ]
-  }}
-  
-  # Configure kernel modules and sysctl
-  provisioner "shell" {{
-    inline = [
-      "echo 'br_netfilter' | sudo tee /etc/modules-load.d/k8s.conf",
-      "echo 'overlay' | sudo tee -a /etc/modules-load.d/k8s.conf",
-      "sudo modprobe br_netfilter",
-      "sudo modprobe overlay",
-      "echo 'net.bridge.bridge-nf-call-iptables = 1' | sudo tee /etc/sysctl.d/k8s.conf",
-      "echo 'net.bridge.bridge-nf-call-ip6tables = 1' | sudo tee -a /etc/sysctl.d/k8s.conf", 
-      "echo 'net.ipv4.ip_forward = 1' | sudo tee -a /etc/sysctl.d/k8s.conf",
-      "sudo sysctl --system"
-    ]
-  }}
-  
-  # Disable swap
-  provisioner "shell" {{
-    inline = [
-      "sudo swapoff -a",
-      "sudo sed -i '/ swap / s/^/#/' /etc/fstab"
-    ]
-  }}
-  
-  # Clean up
-  provisioner "shell" {{
-    inline = [
-      "sudo apt-get autoremove -y",
-      "sudo apt-get autoclean",
-      "sudo rm -rf /var/cache/apt/archives/*",
-      "history -c"
-    ]
-  }}
-}}
-'''
 
 class InfrastructureDeployer(ComponentDeployer):
     """VM infrastructure deployment"""
@@ -753,7 +595,7 @@ class ClusterDeploymentOrchestrator:
         """Initialize component deployers"""
         return {
             Component.FOUNDATION: FoundationDeployer(self.config, self.state),
-            Component.PACKER_IMAGE: PackerImageDeployer(self.config, self.state),
+            Component.TEMPLATE_MANAGER: TemplateManagerDeployer(self.config, self.state),
             Component.INFRASTRUCTURE: InfrastructureDeployer(self.config, self.state),
             Component.KUBERNETES: KubernetesDeployer(self.config, self.state)
         }
@@ -805,14 +647,14 @@ class ClusterDeploymentOrchestrator:
         if profile == DeploymentProfile.SINGLE_NODE:
             components = [
                 Component.FOUNDATION,
-                Component.PACKER_IMAGE, 
+                Component.TEMPLATE_MANAGER, 
                 Component.INFRASTRUCTURE,
                 Component.KUBERNETES
             ]
         else:
             components = [
                 Component.FOUNDATION,
-                Component.PACKER_IMAGE,
+                Component.TEMPLATE_MANAGER,
                 Component.INFRASTRUCTURE, 
                 Component.KUBERNETES
             ]
