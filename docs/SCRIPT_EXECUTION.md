@@ -5,74 +5,51 @@ This document outlines the proper execution order and structure of all automatio
 
 ## Phase-Based Execution Model
 
-### Phase 1-2: Foundation Setup (Combined)
-**Script**: `scripts/cluster-foundation-setup.py`
-**Purpose**: Intelligent foundation setup with state management and drift detection
+### Phase 1-2: Foundation Setup and Template Creation
+**Scripts**: 
+- `scripts/cluster-manager.py` - Consolidated foundation setup and template management
+- `scripts/cluster-deploy.py` - Main deployment orchestrator
 
-#### Execution Order:
-1. **Environment Validation** (cached after first run)
-   - SSH connectivity check
-   - SSH key verification
-   - Network configuration validation
-   - RBD storage verification
+#### Execution Order with cluster-manager.py:
+1. **Foundation Setup** (`--setup-foundation`)
+   - Environment validation with re-run optimization
+   - Packer user setup with ACL permissions and token management
+   - RBD-ISO storage configuration
+   - Cloud image preparation with qemu-guest-agent verification
+   - State tracking to enable safe re-runs
 
-2. **Tools and Storage Setup** (idempotent)
-   - Install required tools (virt-customize)
-   - Setup RBD-ISO storage on Proxmox
-
-3. **Packer User Configuration** (token always refreshed)
-   - Create/update Packer user on Proxmox
-   - Generate fresh API token
-   - Apply proper ACL permissions
-
-4. **Cloud Image Preparation** (skipped if exists)
-   - Download Ubuntu cloud image
-   - Modify with virt-customize
-   - Upload to Proxmox storage
-
-5. **Base Template Creation** (drift detection enabled)
-   - Create VM 9002 from cloud image
-   - Convert to template
-   - Validate template flag
-
-6. **Packer Configuration** (always refreshes files)
-   - Creates/updates `packer/.env` with current token
-   - Updates `packer/variables.json`
-   - Ensures configuration is always current
+2. **Template Creation** (`--create-templates`)
+   - Creates base template (VM ID: 9000) - Ubuntu 24.04 with cloud-init
+   - Creates Kubernetes template (VM ID: 9001) - Pre-installed K8s v1.33.4 components
+   - Full validation of prerequisites before template creation
+   - Automatic IP detection via qemu-guest-agent
 
 #### State Management Features:
-- **Persistent State**: Tracks completed phases in `.foundation-state.json`
-- **Smart Re-runs**: Completes in ~2 seconds when all phases are done
+- **Persistent State**: Tracks completed phases in `~/.kube-cluster/cluster-manager-state.json`
+- **Smart Re-runs**: Skips completed phases automatically
 - **Drift Detection**: Validates actual resource state, not just existence
 - **Force Rebuild**: `--force-rebuild` flag for complete reset
 
 #### Usage Examples:
 ```bash
-# First run on new cluster
-python3 scripts/cluster-foundation-setup.py
+# First run on new cluster - foundation setup
+python3 scripts/cluster-manager.py --setup-foundation
 
-# Re-run on existing cluster (intelligent skipping)
-python3 scripts/cluster-foundation-setup.py
+# Create templates from cloud images
+python3 scripts/cluster-manager.py --create-templates
 
-# Force specific phases to re-run
-python3 scripts/cluster-foundation-setup.py --skip-phases validation tools_storage
+# Combined setup and template creation
+python3 scripts/cluster-manager.py --setup-and-create
 
 # Check current status
-python3 scripts/cluster-foundation-setup.py --status
+python3 scripts/cluster-manager.py --status
+
+# Force specific phases to re-run
+python3 scripts/cluster-manager.py --setup-foundation --skip-phases cloud_image
 
 # Force complete rebuild (destructive)
-python3 scripts/cluster-foundation-setup.py --force-rebuild
+python3 scripts/cluster-manager.py --create-templates --force-rebuild
 ```
-
-### Golden Image Build
-**Command**: `packer build -var-file=packer/variables.json packer/ubuntu-golden.pkr.hcl`
-**Purpose**: Build golden template from base template
-
-#### Features:
-- Uses token from `.env` or `variables.json`
-- Creates VM 9001 as golden template
-- Installs updates and qemu-guest-agent
-- Cleans cloud-init for template use
 
 ### Phase 2.5: DNS Configuration
 **Script**: `scripts/deploy-dns-config.py`
@@ -89,19 +66,45 @@ python3 scripts/cluster-foundation-setup.py --force-rebuild
 python3 scripts/deploy-dns-config.py
 ```
 
-### Phase 3: Infrastructure Provisioning
-**Directory**: `terraform/`
-**Technology**: OpenTofu/Terraform
+### Phase 3: VM Provisioning
+**Script**: `scripts/provision-control-node.py` (example)
+**Purpose**: Provision VMs from templates
+
+#### Example Provisioning:
+```bash
+# Provision control plane node
+python3 scripts/provision-control-node.py
+# Creates VM 131 (k8s-control-1) at 10.10.1.31
+```
+
+### Phase 4: Infrastructure Orchestration
+**Script**: `scripts/cluster-deploy.py`
+**Purpose**: Orchestrate complete cluster deployment
+
+#### Deployment Profiles:
+- **single-node**: All-in-one Kubernetes node for development
+- **single-master**: 1 control plane + 2 workers
+- **ha-cluster**: 3 control planes + 4 workers (production)
 
 #### Commands:
 ```bash
-cd terraform
-terraform init        # First time only
-terraform plan        # Review changes
-terraform apply       # Deploy VMs
+# Deploy single node cluster
+python3 cluster-deploy.py deploy --profile single-node
+
+# Deploy HA cluster
+python3 cluster-deploy.py deploy --profile ha-cluster
+
+# Deploy specific components
+python3 cluster-deploy.py deploy --components foundation template-manager infrastructure
+
+# Check deployment status
+python3 cluster-deploy.py status
+
+# Clean up all resources
+python3 cluster-deploy.py cleanup
 ```
 
-### Phase 4: Kubernetes Bootstrap
+### Phase 5: Kubernetes Bootstrap
 **Script**: `scripts/04-bootstrap-kubernetes.sh`
 **Purpose**: Initialize Kubernetes cluster with kubeadm
 
@@ -111,7 +114,7 @@ terraform apply       # Deploy VMs
 - CNI (Cilium) deployment
 - Initial cluster configuration
 
-### Phase 5: Platform Services
+### Phase 6: Platform Services
 **Script**: `scripts/05-deploy-platform-services.sh`
 **Purpose**: Deploy essential platform services
 
@@ -126,81 +129,84 @@ terraform apply       # Deploy VMs
 
 ### New Cluster Deployment
 ```bash
-# Phase 1-2: Foundation setup (10-15 minutes)
-python3 scripts/cluster-foundation-setup.py
-
-# Build golden image (5-10 minutes)
-packer build -var-file=packer/variables.json packer/ubuntu-golden.pkr.hcl
+# Phase 1-2: Foundation setup and template creation (10-15 minutes)
+python3 scripts/cluster-manager.py --setup-and-create
 
 # Deploy DNS configuration
 python3 scripts/deploy-dns-config.py
 
-# Phase 3: Deploy infrastructure
-cd terraform && terraform apply
+# Phase 3-6: Deploy complete cluster with orchestrator
+python3 scripts/cluster-deploy.py deploy --profile ha-cluster
 
-# Phase 4: Bootstrap Kubernetes
-cd ../scripts && ./04-bootstrap-kubernetes.sh
+# Or manually provision and bootstrap:
+# Provision VMs from templates
+python3 scripts/provision-control-node.py  # Repeat for each node
 
-# Phase 5: Deploy platform services
-./05-deploy-platform-services.sh
+# Bootstrap Kubernetes
+./scripts/04-bootstrap-kubernetes.sh
+
+# Deploy platform services
+./scripts/05-deploy-platform-services.sh
 ```
 
 ### Existing Cluster Updates
 ```bash
-# Verify foundation (2 seconds if no changes)
-python3 scripts/cluster-foundation-setup.py
+# Verify foundation and templates (fast if no changes)
+python3 scripts/cluster-manager.py --status
 
 # Update DNS if needed
 python3 scripts/deploy-dns-config.py
 
-# Scale infrastructure
-cd terraform && terraform apply
+# Scale or update cluster
+python3 scripts/cluster-deploy.py deploy --components infrastructure
 
 # Add new services
-cd ../scripts && ./05-deploy-platform-services.sh
+./scripts/05-deploy-platform-services.sh
 ```
 
 ## Script Reliability Features
 
 ### Idempotency
 All scripts are designed to be idempotent:
-- Foundation setup uses state tracking
+- cluster-manager.py uses comprehensive state tracking
+- Templates verified before creation
 - DNS deployment uses desired state
-- Terraform manages infrastructure state
 - Kubernetes scripts check existing resources
 
 ### Error Handling
 - **Timeouts**: All long-running operations have explicit timeouts
 - **Retries**: Network operations include retry logic
 - **Validation**: Each phase validates success before proceeding
-- **Rollback**: Failed operations don't leave partial state
+- **Script Encoding**: Base64 encoding prevents shell interpretation issues
 
 ### Performance Optimizations
 - **State Caching**: Completed phases tracked and skipped
-- **Parallel Operations**: Where possible, operations run concurrently
+- **Template Reuse**: Cloud images cached locally
 - **Smart Detection**: Only necessary work is performed
-- **Fast Re-runs**: Full validation takes ~2 seconds when complete
+- **Fast Re-runs**: Validation completes quickly when resources exist
 
 ## Troubleshooting
 
 ### Common Issues and Solutions
 
-#### Script Timeouts
+#### qemu-guest-agent Issues
 ```bash
-# Increase timeout for slow networks
-python3 scripts/cluster-foundation-setup.py --timeout 600
+# Force cloud image recreation with proper agent installation
+rm -f /mnt/rbd-iso/template/images/ubuntu-24.04-cloudimg-amd64-modified.img
+python3 scripts/cluster-manager.py --setup-foundation --skip-phases dns_config rbd_storage
+```
+
+#### Template Creation Failures
+```bash
+# Force rebuild of templates
+python3 scripts/cluster-manager.py --create-templates --force-rebuild
 ```
 
 #### State Corruption
 ```bash
 # Reset state and start fresh
-python3 scripts/cluster-foundation-setup.py --reset-state
-```
-
-#### Template Drift
-```bash
-# Force rebuild of templates
-python3 scripts/cluster-foundation-setup.py --force-rebuild
+rm ~/.kube-cluster/cluster-manager-state.json
+python3 scripts/cluster-manager.py --setup-and-create
 ```
 
 #### DNS Issues
@@ -211,22 +217,22 @@ python3 scripts/deploy-dns-config.py --force
 
 ## Best Practices
 
-1. **Always run foundation setup first** - Even on existing clusters, it validates environment
-2. **Check status before major operations** - Use `--status` flag to review state
-3. **Use force flags sparingly** - Only when you need to override safety checks
-4. **Monitor logs** - All scripts provide detailed colored output
+1. **Always verify templates first** - Use `cluster-manager.py --status` to check state
+2. **Use consolidated scripts** - cluster-manager.py handles both foundation and templates
+3. **Monitor qemu-guest-agent** - Ensures proper IP detection for VMs
+4. **Check logs for errors** - Scripts provide detailed colored output
 5. **Backup before destructive operations** - Especially before `--force-rebuild`
 
 ## Script Dependencies
 
 ```
-cluster-foundation-setup.py
+cluster-manager.py --setup-foundation
     ↓
-packer build
+cluster-manager.py --create-templates
     ↓
 deploy-dns-config.py
     ↓
-terraform apply
+cluster-deploy.py (or manual provisioning)
     ↓
 04-bootstrap-kubernetes.sh
     ↓
@@ -234,3 +240,12 @@ terraform apply
 ```
 
 Each script depends on the successful completion of the previous phase.
+
+## Key Improvements in Current Implementation
+
+1. **Consolidated Scripts**: Reduced from 3 scripts to 2 (cluster-manager.py replaces cluster-foundation-setup.py and template-manager.py)
+2. **Cloud Image Based**: Direct use of Ubuntu cloud images instead of Packer for simpler workflow
+3. **qemu-guest-agent**: Properly installed and verified for reliable IP detection
+4. **Base64 Encoding**: Script transfer uses base64 to prevent shell interpretation issues
+5. **Template Validation**: Both base (9000) and Kubernetes (9001) templates properly validated
+6. **Kubernetes v1.33.4**: Updated to latest stable version with all components pre-installed

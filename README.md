@@ -19,7 +19,7 @@ This solution provides comprehensive automation for deploying and managing produ
 
 | Component | Technology | Purpose |
 |-----------|------------|---------|
-| **Golden Images** | HashiCorp Packer | Immutable VM template creation |
+| **VM Templates** | Cloud Images + virt-customize | Immutable VM template creation |
 | **Infrastructure** | OpenTofu | Declarative infrastructure provisioning |
 | **Configuration** | Ansible | Idempotent configuration management |
 | **Orchestration** | Python 3.11+ | Deployment coordination and state tracking |
@@ -89,7 +89,7 @@ curl -sSL https://get.opentofu.org/install.sh | bash
 The deployment follows a structured 5-phase approach:
 
 1. **Environment Validation** - Verify prerequisites and connectivity
-2. **Golden Image Creation** - Build Kubernetes-ready VM templates  
+2. **Template Creation** - Build Kubernetes-ready VM templates from cloud images
 3. **Infrastructure Provisioning** - Deploy VMs with OpenTofu
 4. **Kubernetes Bootstrap** - Initialize cluster with kubeadm
 5. **Platform Services** - Deploy monitoring, ingress, and storage
@@ -101,8 +101,9 @@ The deployment follows a structured 5-phase approach:
 git clone https://github.com/sddcinfo/kubernetes-cluster.git
 cd kubernetes-cluster
 
-# Phase 1-2: Prepare environment and cloud-base template
-python3 scripts/cluster-foundation-setup.py
+# Phase 1-2: Prepare environment and create templates
+python3 scripts/cluster-manager.py --setup-foundation
+python3 scripts/cluster-manager.py --create-templates
 
 # Phase 3-5: Deploy infrastructure and Kubernetes
 python3 scripts/deploy-dns-config.py   # Deploy DNS configuration
@@ -121,17 +122,19 @@ For current implementation status and progress details, see [STATUS.md](docs/STA
 For granular control or troubleshooting:
 
 ```bash
-# Phase 1-2: Complete foundation setup (intelligent with state tracking)
-python3 scripts/cluster-foundation-setup.py
+# Phase 1-2: Complete foundation setup and template creation
+python3 scripts/cluster-manager.py --setup-foundation
 # This intelligent script handles:
 # - Environment validation with re-run optimization
 # - Packer user setup with ACL permissions and token management
 # - RBD-ISO storage configuration
-# - Cloud image preparation with existence checking
-# - Base template creation with safety checks
-# - Packer configuration with automated token injection
+# - Cloud image preparation with qemu-guest-agent verification
 # - State tracking to enable safe re-runs
-# - Ready for Kubernetes template creation
+
+python3 scripts/cluster-manager.py --create-templates
+# Creates both base and Kubernetes-ready templates:
+# - Template 9000: ubuntu-base-template (base Ubuntu with cloud-init)
+# - Template 9001: ubuntu-k8s-template (pre-installed Kubernetes v1.33.4)
 
 # Phase 3-5: Infrastructure and Kubernetes deployment
 python3 scripts/deploy-dns-config.py   # Deploy DNS configuration
@@ -154,7 +157,7 @@ python3 cluster-deploy.py deploy --profile single-node
 python3 cluster-deploy.py deploy --profile ha-cluster
 
 # Deploy specific components
-python3 cluster-deploy.py deploy --components foundation packer-image infrastructure
+python3 cluster-deploy.py deploy --components foundation template-manager infrastructure
 
 # Force redeploy existing components
 python3 cluster-deploy.py deploy --force
@@ -175,7 +178,7 @@ CONTROL_NODES=3     # Control plane instances
 WORKER_NODES=4      # Worker node count
 
 # scripts/04-bootstrap-kubernetes.sh  
-KUBE_VERSION="1.30.0"           # Kubernetes version
+KUBE_VERSION="1.33.4"           # Kubernetes version
 POD_NETWORK="10.244.0.0/16"     # Pod CIDR
 SERVICE_NETWORK="10.96.0.0/12"  # Service CIDR
 ```
@@ -193,12 +196,13 @@ This creates DNS records for all Kubernetes components without affecting existin
 
 ### Proxmox Integration
 
-Packer user and permissions are automatically configured by the pre-environment script. The setup includes:
+Proxmox integration is handled by the cluster-manager.py script. The setup includes:
 - Packer user creation with comprehensive permissions
 - API token generation and management
-- Automatic configuration updates
+- Cloud image preparation with qemu-guest-agent
+- Template creation from cloud images
 
-For manual configuration details, see `scripts/cluster-foundation-setup.py`.
+For manual configuration details, see `scripts/cluster-manager.py`.
 
 ## Documentation
 

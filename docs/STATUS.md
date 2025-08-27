@@ -10,25 +10,27 @@ This document tracks the progress of the Kubernetes cluster deployment automatio
 **Date Completed**: August 27, 2025
 
 #### Achievements:
-- **Intelligent Setup**: Created production-ready `cluster-foundation-setup.py` with comprehensive automation
+- **Script Consolidation**: Merged `cluster-foundation-setup.py` and `template-manager.py` into unified `cluster-manager.py`
+- **Cloud Image Integration**: Direct use of Ubuntu cloud images with virt-customize for template creation
+- **qemu-guest-agent Fix**: Resolved installation issues with proper verification and base64 script encoding
+- **Template Management**: Automated creation of both base and Kubernetes-ready templates
 - **Timeout Handling**: Fixed critical timeout issues for long-running operations (virt-customize, downloads)
-- **Drift Detection**: Validated template state checking and automatic correction of manual changes
 - **Modular DNS**: Implemented coexisting DNS configuration for Kubernetes without affecting base infrastructure  
 - **IP Allocation**: Strategic network planning with proper segmentation avoiding DHCP conflicts
-- **Automation**: Automated Packer user creation with proper ACL permissions and token management
-- **Templates**: Golden image pipeline with Ubuntu 24.04, qemu-guest-agent, and EFI support
 - **Documentation**: Comprehensive networking and deployment documentation
 
 #### Key Files:
-- `scripts/cluster-foundation-setup.py` - Intelligent foundation setup with state tracking
+- `scripts/cluster-manager.py` - Consolidated foundation setup and template management (~950 lines)
+- `scripts/cluster-deploy.py` - Main deployment orchestrator with modular components
 - `scripts/deploy-dns-config.py` - DNS configuration deployment (Python)
+- `scripts/provision-control-node.py` - Example VM provisioning from templates
 - `configs/dnsmasq.d/kubernetes.conf` - Kubernetes DNS configuration 
 - `docs/IP_ALLOCATION.md` - Network allocation strategy
 - `docs/DNS_CONFIGURATION.md` - DNS configuration details
 
 #### Templates Created:
-- **Base Template**: `ubuntu-cloud-base` (VM ID: 9002)
-- **Golden Template**: `ubuntu-2404-golden` (VM ID: 9001)
+- **Base Template**: `ubuntu-base-template` (VM ID: 9000) - Ubuntu 24.04 with cloud-init
+- **Kubernetes Template**: `ubuntu-k8s-template` (VM ID: 9001) - Pre-installed K8s v1.33.4 components
 
 #### Network Configuration:
 - **Control Plane VIP**: 10.10.1.30
@@ -53,7 +55,7 @@ This document tracks the progress of the Kubernetes cluster deployment automatio
 
 #### New Components:
 - **cluster-deploy.py**: Main orchestrator with modular component deployment
-- **Kubernetes-Ready Packer Images**: Pre-installed K8s components for faster deployments
+- **Kubernetes-Ready Templates**: Pre-installed K8s v1.33.4 components via cloud images
 - **Configuration Profiles**: YAML-based deployment configurations
 - **Enhanced State Tracking**: Component-level state management with metadata
 
@@ -66,7 +68,7 @@ This document tracks the progress of the Kubernetes cluster deployment automatio
 
 #### Component Architecture:
 - **Foundation**: DNS, SSH, basic infrastructure setup
-- **Packer Image**: Kubernetes-ready VM templates with pre-installed software
+- **Template Manager**: Kubernetes-ready VM templates with pre-installed software
 - **Infrastructure**: VM provisioning via Terraform/OpenTofu
 - **Kubernetes**: Cluster bootstrap with kubeadm and Ansible
 - **Networking**: CNI (Cilium), load balancing, ingress

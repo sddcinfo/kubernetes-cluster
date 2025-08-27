@@ -11,20 +11,20 @@ After extensive research and evaluation, the recommended approach for automating
 
 ## Tool Selection Rationale
 
-### VM Image Building: Packer ✅
+### VM Template Building: Cloud Images + virt-customize ✅
 
-**Why Packer:**
-- Industry standard for multi-platform VM image building
-- Native Proxmox provider support
-- Excellent cloud-init integration
-- HCL configuration (modern, declarative)
-- Idempotent builds
+**Why Cloud Images with virt-customize:**
+- Official Ubuntu cloud images as base (maintained and secure)
+- virt-customize for image modification (part of libguestfs-tools)
+- Direct Proxmox API integration for template creation
+- Simpler than Packer for cloud image-based workflows
+- qemu-guest-agent pre-installed for better VM management
 
 **Alternatives Considered:**
+- Packer: Overkill for cloud image-based templates
 - Manual template creation: Too error-prone, not repeatable
 - Azure VM Image Builder: Azure-specific
 - CloudCaptain: AWS/JVM specific
-- Custom scripts: Lacks standardization and community support
 
 ### Infrastructure as Code: OpenTofu ✅
 
@@ -82,13 +82,16 @@ After extensive research and evaluation, the recommended approach for automating
 - Storage setup (Ceph RBD pools)
 - DNS/DHCP configuration
 
-### Phase 2: Golden Image Creation
+### Phase 2: Template Creation
 - Ubuntu 24.04 LTS cloud image download
-- Packer template build with:
-  - Kubernetes prerequisites
-  - Container runtime (containerd)
-  - System optimizations
-  - Security hardening
+- Cloud image customization with virt-customize:
+  - qemu-guest-agent installation
+  - EFI boot configuration
+  - SSH key injection
+  - User creation (sysadmin)
+- Template creation via Proxmox API:
+  - Base template (9000): Ubuntu with cloud-init
+  - Kubernetes template (9001): Pre-installed K8s v1.33.4 components
 
 ### Phase 3: Infrastructure Provisioning
 - OpenTofu deploys:
@@ -122,7 +125,7 @@ After extensive research and evaluation, the recommended approach for automating
 - Consistent across Ubuntu versions
 
 ### 2. Separation of Concerns
-- Packer: Immutable base images
+- Cloud Images + virt-customize: Immutable base templates
 - OpenTofu: Infrastructure state
 - Ansible: Configuration drift prevention
 - Python: Orchestration and error handling
@@ -146,12 +149,12 @@ After extensive research and evaluation, the recommended approach for automating
 3. Single source of truth for documentation (README.md)
 
 ### Step 2: Modular Scripts
-Each phase gets its own script:
-- `01-validate-environment.py`
-- `02-build-kubernetes-template.sh`
-- `03-provision-infrastructure.sh`
-- `04-bootstrap-kubernetes.sh`
-- `05-deploy-platform-services.sh`
+Consolidated approach with intelligent state tracking:
+- `cluster-manager.py` - Foundation setup and template creation
+- `cluster-deploy.py` - Main deployment orchestrator
+- `deploy-dns-config.py` - DNS configuration
+- `04-bootstrap-kubernetes.sh` - Kubernetes initialization
+- `05-deploy-platform-services.sh` - Platform services deployment
 
 ### Step 3: Orchestration Layer
 Main orchestrator script:
@@ -175,9 +178,8 @@ kubernetes-cluster/
 │   ├── 04-bootstrap.sh
 │   └── 05-services.sh
 │
-├── packer/                 # Packer templates
-│   ├── ubuntu-k8s.pkr.hcl
-│   └── variables.json
+├── templates/              # Template configurations
+│   └── (deprecated - templates created via cluster-manager.py)
 │
 ├── terraform/              # OpenTofu/Terraform configs
 │   ├── main.tf
@@ -217,12 +219,12 @@ kubernetes-cluster/
 
 | Component | Tool | Version | License |
 |-----------|------|---------|---------|
-| VM Images | Packer | 1.10+ | MPL 2.0 |
+| VM Templates | Cloud Images + virt-customize | Latest | Various |
 | Infrastructure | OpenTofu | 1.6+ | Apache 2.0 |
 | Configuration | Ansible | 2.16+ | GPL 3.0 |
 | Orchestration | Python | 3.11+ | PSF |
 | Container Runtime | containerd | 1.7+ | Apache 2.0 |
-| Kubernetes | kubeadm | 1.30+ | Apache 2.0 |
+| Kubernetes | kubeadm | 1.33.4 | Apache 2.0 |
 | CNI | Cilium | 1.15+ | Apache 2.0 |
 | CSI | Proxmox CSI | Latest | Apache 2.0 |
 | Load Balancer | MetalLB | 0.14+ | Apache 2.0 |
