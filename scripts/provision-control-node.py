@@ -7,10 +7,30 @@ import subprocess
 import time
 import sys
 import json
+import yaml
 from pathlib import Path
 
+# Load template configuration
+def load_template_config():
+    """Load template configuration from YAML file"""
+    config_paths = [
+        Path.home() / 'proxmox-config' / 'templates.yaml',
+        Path('/home/sysadmin/claude/ansible-provisioning-server/config/templates.yaml'),
+        Path.home() / '.config' / 'proxmox-templates.yaml'
+    ]
+    
+    for path in config_paths:
+        if path.exists():
+            with open(path, 'r') as f:
+                return yaml.safe_load(f)
+    
+    # Fall back to hardcoded defaults
+    print("[WARNING] No template config found, using defaults. Make sure ansible-provisioning-server is set up first.")
+    return {'templates': {'kubernetes': {'id': 9001}}}
+
 # Configuration
-TEMPLATE_ID = 9001
+template_config = load_template_config()
+TEMPLATE_ID = template_config['templates']['kubernetes']['id']
 NEW_VM_ID = 131  # Using 131 to match IP 10.10.1.31
 VM_NAME = "k8s-control-1"
 VM_IP = "10.10.1.31"

@@ -21,6 +21,7 @@ Usage:
 import subprocess
 import sys
 import json
+import yaml
 import time
 import logging
 import argparse
@@ -129,30 +130,73 @@ class ClusterManager:
         self.force_rebuild = force_rebuild
         self.skip_phases = skip_phases or []
         
-        # Template configuration
+        # Load template configuration from YAML
+        self.template_config = self.load_template_config()
+        
+        # Template configuration from YAML
         self.templates = {
             'base': {
-                'id': 9000,
-                'name': 'ubuntu-base-template',
-                'description': 'Ubuntu 24.04 Base Template - qemu-agent + updates',
-                'memory': 2048,
-                'cores': 2
+                'id': self.template_config['templates']['base']['id'],
+                'name': self.template_config['templates']['base']['name'],
+                'description': self.template_config['templates']['base']['description'],
+                'memory': self.template_config['templates']['base']['memory'],
+                'cores': self.template_config['templates']['base']['cores']
             },
             'k8s': {
-                'id': 9001, 
-                'name': 'ubuntu-k8s-template',
-                'description': 'Ubuntu 24.04 with Kubernetes 1.33.4',
-                'memory': 4096,
-                'cores': 4
+                'id': self.template_config['templates']['kubernetes']['id'],
+                'name': self.template_config['templates']['kubernetes']['name'],
+                'description': self.template_config['templates']['kubernetes']['description'],
+                'memory': self.template_config['templates']['kubernetes']['memory'],
+                'cores': self.template_config['templates']['kubernetes']['cores']
             }
         }
         
-        self.k8s_version = "1.33.4"
+        self.k8s_version = self.template_config['templates']['kubernetes']['k8s_version']
         
-        # Cloud image settings with Japan mirror optimization
-        self.cloud_image_url = "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img"
-        self.japan_cloud_image_url = "http://cloud-images.ubuntu.com.edgecastcdn.net/noble/current/noble-server-cloudimg-amd64.img"
-        self.cached_image_path = "/mnt/rbd-iso/template/images/ubuntu-24.04-cloudimg-cached.img"
+        # Cloud image settings from YAML
+        self.cloud_image_url = self.template_config['cloud_image']['url']
+        self.japan_cloud_image_url = self.template_config['cloud_image']['japan_cloud_url']
+        self.cached_image_path = self.template_config['cloud_image']['cached_path']
+    
+    def load_template_config(self) -> dict:
+        """Load template configuration from YAML file"""
+        config_paths = [
+            Path.home() / 'proxmox-config' / 'templates.yaml',
+            Path('/home/sysadmin/claude/ansible-provisioning-server/config/templates.yaml'),
+            Path.home() / '.config' / 'proxmox-templates.yaml'
+        ]
+        
+        for path in config_paths:
+            if path.exists():
+                with open(path, 'r') as f:
+                    return yaml.safe_load(f)
+        
+        # Fall back to hardcoded defaults
+        log_warning("No template config found, using defaults. Make sure ansible-provisioning-server is set up first.")
+        return {
+            'templates': {
+                'base': {
+                    'id': 9000,
+                    'name': 'ubuntu-base-template',
+                    'description': 'Ubuntu 24.04 Base Template',
+                    'memory': 2048,
+                    'cores': 2
+                },
+                'kubernetes': {
+                    'id': 9001,
+                    'name': 'ubuntu-k8s-template',
+                    'description': 'Ubuntu 24.04 with Kubernetes',
+                    'memory': 4096,
+                    'cores': 4,
+                    'k8s_version': '1.33.4'
+                }
+            },
+            'cloud_image': {
+                'url': 'https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img',
+                'japan_cloud_url': 'http://cloud-images.ubuntu.com.edgecastcdn.net/noble/current/noble-server-cloudimg-amd64.img',
+                'cached_path': '/mnt/rbd-iso/template/images/ubuntu-24.04-cloudimg-cached.img'
+            }
+        }
     
     def run_ssh_command(self, command: str, timeout: int = 300) -> Tuple[int, str, str]:
         """Execute SSH command on Proxmox host."""

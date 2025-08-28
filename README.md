@@ -6,6 +6,8 @@ Production-grade automation framework for deploying highly available Kubernetes 
 
 This solution provides comprehensive automation for deploying and managing production-ready Kubernetes clusters on Proxmox VE environments. Built using a proven technology stack of Packer, OpenTofu, Ansible, and Python, it eliminates manual configuration steps while ensuring consistent, reliable deployments.
 
+**Note:** This solution requires VM templates (IDs 9000 and 9001) to be created first using the template-manager.py script from the ansible-provisioning-server repository.
+
 ### Key Features
 
 - **Zero-touch deployment** - Fully automated cluster provisioning from bare infrastructure
@@ -86,13 +88,34 @@ curl -sSL https://get.opentofu.org/install.sh | bash
 
 ### Phase-Based Deployment
 
-The deployment follows a structured 5-phase approach:
+The deployment follows a structured approach:
 
-1. **Environment Validation** - Verify prerequisites and connectivity
-2. **Template Creation** - Build Kubernetes-ready VM templates from cloud images
+1. **Template Prerequisites** - Create VM templates using ansible-provisioning-server
+2. **Environment Validation** - Verify prerequisites and connectivity  
 3. **Infrastructure Provisioning** - Deploy VMs with OpenTofu
 4. **Kubernetes Bootstrap** - Initialize cluster with kubeadm
 5. **Platform Services** - Deploy monitoring, ingress, and storage
+
+### Step 0: Setup and Create VM Templates (Required)
+
+Before deploying the Kubernetes cluster, set up configuration and create templates:
+
+```bash
+# 1. Setup shared configuration (on ansible-provisioning-server host)
+cd /path/to/ansible-provisioning-server
+./scripts/bootstrap-config.sh
+
+# 2. Create VM templates
+python3 scripts/template-manager.py --create-templates
+
+# 3. Verify templates are created
+python3 scripts/template-manager.py --verify
+```
+
+This creates:
+- Configuration at `~/proxmox-config/templates.yaml` (shared between repos)
+- Template ID 9000: Ubuntu 24.04 base template  
+- Template ID 9001: Ubuntu 24.04 with Kubernetes 1.33.4 pre-installed
 
 ### Quick Start
 

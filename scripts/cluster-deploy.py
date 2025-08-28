@@ -136,6 +136,28 @@ class ComponentDeployer:
     def cleanup(self) -> bool:
         """Clean up component resources"""
         raise NotImplementedError
+    
+    def load_template_config(self) -> dict:
+        """Load template configuration from YAML file"""
+        config_paths = [
+            Path.home() / "proxmox-config" / "templates.yaml",
+            Path("/home/sysadmin/claude/ansible-provisioning-server/config/templates.yaml"),
+            Path.home() / ".config" / "proxmox-templates.yaml"
+        ]
+        
+        for path in config_paths:
+            if path.exists():
+                with open(path, 'r') as f:
+                    return yaml.safe_load(f)
+        
+        # Fall back to hardcoded defaults if no config found
+        self.logger.warning("No template config found, using defaults. Make sure ansible-provisioning-server is set up first.")
+        return {
+            'templates': {
+                'base': {'id': 9000},
+                'kubernetes': {'id': 9001}
+            }
+        }
 
 class FoundationDeployer(ComponentDeployer):
     """Foundation setup: DNS, SSH, basic configuration"""
@@ -201,12 +223,15 @@ class TemplateManagerDeployer(ComponentDeployer):
         except:
             self.logger.warning("Template testing failed, but templates may still be usable")
         
+        # Load template IDs from config
+        template_config = self.load_template_config()
+        
         self.state.set_component_state(
             Component.TEMPLATE_MANAGER,
             "deployed", 
             {
-                "base_template_id": 9000,
-                "k8s_template_id": 9001,
+                "base_template_id": template_config['templates']['base']['id'],
+                "k8s_template_id": template_config['templates']['kubernetes']['id'],
                 "creation_timestamp": str(datetime.now())
             }
         )
@@ -214,6 +239,11 @@ class TemplateManagerDeployer(ComponentDeployer):
 
 class InfrastructureDeployer(ComponentDeployer):
     """VM infrastructure deployment"""
+    
+    def get_k8s_template_id(self) -> int:
+        """Get Kubernetes template ID from config"""
+        template_config = self.load_template_config()
+        return template_config['templates']['kubernetes']['id']
     
     def validate(self) -> bool:
         # Check if terraform/tofu is available
@@ -294,7 +324,7 @@ resource "proxmox_virtual_environment_vm" "control_plane" {{
   vm_id     = 200 + count.index
   
   clone {{
-    vm_id = {self.config.get('template_id', 9001)}
+    vm_id = {self.get_k8s_template_id()}
     full  = true
   }}
   
@@ -335,7 +365,7 @@ resource "proxmox_virtual_environment_vm" "worker" {{
   vm_id     = 210 + count.index
   
   clone {{
-    vm_id = {self.config.get('template_id', 9001)}
+    vm_id = {self.get_k8s_template_id()}
     full  = true
   }}
   
