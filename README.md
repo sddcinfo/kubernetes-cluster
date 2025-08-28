@@ -23,9 +23,9 @@ This solution provides comprehensive automation for deploying and managing produ
 |-----------|------------|---------|
 | **VM Templates** | Cloud Images + virt-customize | Immutable VM template creation |
 | **Infrastructure** | OpenTofu | Declarative infrastructure provisioning |
-| **Configuration** | Ansible | Idempotent configuration management |
+| **Kubernetes Deployment** | Kubespray v2.28.1+ | Production-ready cluster deployment |
 | **Orchestration** | Python 3.11+ | Deployment coordination and state tracking |
-| **Container Network** | Cilium | eBPF-based CNI with advanced security and observability |
+| **Container Network** | Cilium 1.18.1 | eBPF-based CNI with advanced security and observability |
 | **Storage** | Proxmox CSI | Dynamic persistent volume provisioning |
 | **Load Balancing** | MetalLB | Bare-metal LoadBalancer service implementation |
 
@@ -124,15 +124,24 @@ This creates:
 git clone https://github.com/sddcinfo/kubernetes-cluster.git
 cd kubernetes-cluster
 
-# 100% HANDS-OFF AUTOMATION: Complete foundation and template creation
+# Phase 1-2: Foundation and template creation
 python3 scripts/cluster-manager.py --setup-and-create
 
-# Phase 3-5: Deploy infrastructure and Kubernetes (coming soon)
-python3 scripts/deploy-dns-config.py   # Deploy DNS configuration
-cd terraform && terraform apply      # Deploy VMs
-cd ../scripts
-./04-bootstrap-kubernetes.sh         # Initialize cluster
-./05-deploy-platform-services.sh     # Deploy services
+# Phase 3-5: Complete infrastructure and Kubernetes deployment
+python3 scripts/deploy-dns-config.py          # Deploy DNS configuration
+cd terraform && terraform apply               # Deploy VMs with OpenTofu
+python3 scripts/deploy-kubespray-cluster.py   # Deploy Kubernetes with Kubespray
+```
+
+### New Kubespray-Based Deployment 🚀
+
+The latest version uses **Kubespray v2.28.1+** for production-ready Kubernetes deployment:
+
+- **Kubernetes 1.33.4** - Latest stable version
+- **Cilium 1.18.1** - Advanced eBPF networking  
+- **Automated HA Setup** - 3 control plane nodes with stacked etcd
+- **Security Hardening** - Production security configurations
+- **Zero Maintenance** - Community-maintained deployment logic
 ```
 
 ### 🚀 **100% Hands-Off Automation**
@@ -185,11 +194,10 @@ python3 scripts/template-manager.py --remove-all --yes  # Clean everything
 python3 scripts/cluster-manager.py --setup-and-create --force-rebuild  # Full automation
 
 # Phase 3-5: Infrastructure and Kubernetes deployment
-python3 scripts/deploy-dns-config.py   # Deploy DNS configuration
-cd terraform && terraform apply      # Deploy VMs  
-cd ../scripts
-./04-bootstrap-kubernetes.sh         # Initialize cluster
-./05-deploy-platform-services.sh     # Deploy services
+python3 scripts/deploy-dns-config.py          # Deploy DNS configuration
+cd terraform && terraform apply               # Deploy VMs with OpenTofu
+python3 scripts/deploy-kubespray-cluster.py   # Deploy Kubernetes with Kubespray
+./05-deploy-platform-services.sh              # Deploy platform services
 ```
 
 ### Deployment Management

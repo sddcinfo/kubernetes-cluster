@@ -1,0 +1,70 @@
+---
+- name: Deploy Kubernetes cluster using Kubespray
+  hosts: localhost
+  gather_facts: false
+  vars:
+    kubespray_dir: "{{ playbook_dir }}/../kubespray"
+    inventory_file: "{{ kubespray_dir }}/inventory/proxmox-cluster/inventory.ini"
+    
+  tasks:
+    - name: Check if Kubespray directory exists
+      stat:
+        path: "{{ kubespray_dir }}"
+      register: kubespray_check
+      
+    - name: Fail if Kubespray not found
+      fail:
+        msg: "Kubespray directory not found at {{ kubespray_dir }}"
+      when: not kubespray_check.stat.exists
+      
+    - name: Install Kubespray Python requirements
+      pip:
+        requirements: "{{ kubespray_dir }}/requirements.txt"
+        state: present
+        
+    - name: Check connectivity to all nodes
+      include: "{{ kubespray_dir }}/cluster.yml"
+      vars:
+        ansible_inventory: "{{ inventory_file }}"
+      tags: never  # Only run when explicitly requested
+      
+    - name: Deploy Kubernetes cluster with Kubespray
+      command:
+        cmd: >
+          ansible-playbook 
+          -i {{ inventory_file }}
+          -b
+          {{ kubespray_dir }}/cluster.yml
+        chdir: "{{ kubespray_dir }}"
+      register: kubespray_result
+      
+    - name: Display deployment result
+      debug:
+        msg: "Kubespray deployment {{ 'successful' if kubespray_result.rc == 0 else 'failed' }}"
+        
+    - name: Copy kubeconfig for cluster access
+      copy:
+        src: "{{ kubespray_dir }}/inventory/proxmox-cluster/artifacts/admin.conf"
+        dest: "/home/sysadmin/.kube/config-k8s-proxmox"
+        mode: '0600'
+        owner: sysadmin
+        group: sysadmin
+      ignore_errors: true  # File might not exist yet
+      
+    - name: Set KUBECONFIG environment variable
+      lineinfile:
+        path: "/home/sysadmin/.bashrc"
+        line: "export KUBECONFIG=/home/sysadmin/.kube/config-k8s-proxmox"
+        create: yes
+        
+    - name: Verify cluster deployment
+      command: kubectl get nodes
+      environment:
+        KUBECONFIG: "/home/sysadmin/.kube/config-k8s-proxmox"
+      register: cluster_status
+      ignore_errors: true
+      
+    - name: Display cluster status
+      debug:
+        var: cluster_status.stdout_lines
+      when: cluster_status.rc == 0

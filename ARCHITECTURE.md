@@ -4,10 +4,10 @@
 
 After extensive research and evaluation, the recommended approach for automating Kubernetes cluster deployment on Proxmox is:
 
-1. **Packer** for VM image creation (best tool for the job)
-2. **OpenTofu** for infrastructure provisioning (open-source Terraform fork)
-3. **Ansible** for configuration management
-4. **Python** orchestration with async/await for overall automation
+1. **Cloud Images + virt-customize** for VM template creation (simplified and reliable)
+2. **OpenTofu** for infrastructure provisioning (open-source Terraform fork)  
+3. **Kubespray** for Kubernetes cluster deployment (battle-tested community solution)
+4. **Python** orchestration scripts for overall automation workflow
 
 ## Tool Selection Rationale
 
@@ -41,14 +41,21 @@ After extensive research and evaluation, the recommended approach for automating
 - Crossplane: Kubernetes-native but requires existing K8s cluster (chicken-egg problem)
 - Ansible alone: Not declarative for infrastructure state
 
-### Configuration Management: Ansible ✅
+### Kubernetes Deployment: Kubespray ✅
 
-**Why Ansible:**
-- Agentless architecture
-- Idempotent operations
-- Excellent Kubernetes support (kubespray, kubeadm modules)
-- Wide community adoption
-- Simple YAML syntax
+**Why Kubespray over Custom Ansible:**
+- **Production-Ready**: Battle-tested across thousands of deployments
+- **Community Maintained**: Regular updates with latest Kubernetes versions
+- **Comprehensive**: Handles all edge cases and deployment scenarios  
+- **Best Practices**: Built-in security hardening and HA configurations
+- **Reduced Maintenance**: No need to maintain custom kubeadm logic
+- **Advanced Features**: Native support for multiple CNIs, CSIs, and addons
+
+**Alternatives Considered:**
+- Custom Ansible roles: High maintenance overhead, reinventing the wheel
+- kubeadm directly: Missing production hardening and automation
+- RKE/RKE2: Rancher-specific, less flexibility
+- k3s: Too lightweight for enterprise requirements
 
 ### Container Networking: Cilium ✅
 
