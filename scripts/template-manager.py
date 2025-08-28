@@ -724,6 +724,7 @@ def main():
     parser.add_argument("--test-templates", action="store_true", help="Test templates")
     parser.add_argument("--clean-up", action="store_true", help="Clean up all templates and test VMs")
     parser.add_argument("--remove-all", action="store_true", help="Remove ALL templates and clean up completely (destructive)")
+    parser.add_argument("--yes", "-y", action="store_true", help="Automatically answer yes to confirmation prompts")
     
     args = parser.parse_args()
     
@@ -755,17 +756,22 @@ def main():
             logger.warning("  - All prepared cloud images")
             logger.warning("  - All temporary files and cache")
             
-            try:
-                confirmation = input("Type 'yes' to confirm complete removal: ")
-                if confirmation.lower() == 'yes':
-                    manager.remove_all_templates_and_cleanup()
-                    sys.exit(0)
-                else:
-                    logger.info("Operation cancelled")
+            if args.yes:
+                logger.info("Auto-confirming removal due to --yes flag")
+                manager.remove_all_templates_and_cleanup()
+                sys.exit(0)
+            else:
+                try:
+                    confirmation = input("Type 'yes' to confirm complete removal: ")
+                    if confirmation.lower() == 'yes':
+                        manager.remove_all_templates_and_cleanup()
+                        sys.exit(0)
+                    else:
+                        logger.info("Operation cancelled")
+                        sys.exit(1)
+                except KeyboardInterrupt:
+                    logger.info("\nOperation cancelled by user")
                     sys.exit(1)
-            except KeyboardInterrupt:
-                logger.info("\nOperation cancelled by user")
-                sys.exit(1)
             
     except KeyboardInterrupt:
         logger.info("Operation cancelled by user")

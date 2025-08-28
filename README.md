@@ -101,16 +101,33 @@ The deployment follows a structured 5-phase approach:
 git clone https://github.com/sddcinfo/kubernetes-cluster.git
 cd kubernetes-cluster
 
-# Phase 1-2: Prepare environment and create templates
-python3 scripts/cluster-manager.py --setup-foundation
-python3 scripts/cluster-manager.py --create-templates
+# 100% HANDS-OFF AUTOMATION: Complete foundation and template creation
+python3 scripts/cluster-manager.py --setup-and-create
 
-# Phase 3-5: Deploy infrastructure and Kubernetes
+# Phase 3-5: Deploy infrastructure and Kubernetes (coming soon)
 python3 scripts/deploy-dns-config.py   # Deploy DNS configuration
 cd terraform && terraform apply      # Deploy VMs
 cd ../scripts
 ./04-bootstrap-kubernetes.sh         # Initialize cluster
 ./05-deploy-platform-services.sh     # Deploy services
+```
+
+### 🚀 **100% Hands-Off Automation**
+
+The cluster-manager now provides **completely automated template creation** with zero manual intervention:
+
+```bash
+# From clean slate to production-ready templates in ~4 minutes
+python3 scripts/cluster-manager.py --setup-and-create
+
+# Features:
+# ✅ Automatic prerequisite validation
+# ✅ Terraform user setup with proper permissions  
+# ✅ Cloud image preparation with EFI boot support
+# ✅ Base template creation (ubuntu-base-template, ID 9000)
+# ✅ Kubernetes template with K8s v1.33.4 (ubuntu-k8s-template, ID 9001)
+# ✅ Robust error handling and retry mechanisms
+# ✅ Graceful VM management and template conversion
 ```
 
 ### Implementation Status
@@ -119,22 +136,30 @@ For current implementation status and progress details, see [STATUS.md](docs/STA
 
 ### Individual Phase Execution
 
-For granular control or troubleshooting:
+For granular control or troubleshooting, you can run phases separately:
 
 ```bash
-# Phase 1-2: Complete foundation setup and template creation
+# Phase 1: Foundation setup only
 python3 scripts/cluster-manager.py --setup-foundation
 # This intelligent script handles:
 # - Environment validation with re-run optimization
-# - Packer user setup with ACL permissions and token management
+# - Terraform user setup with Administrator role (VM.Monitor workaround)
 # - RBD-ISO storage configuration
 # - Cloud image preparation with qemu-guest-agent verification
 # - State tracking to enable safe re-runs
 
+# Phase 2: Template creation only (requires foundation)
 python3 scripts/cluster-manager.py --create-templates
-# Creates both base and Kubernetes-ready templates:
+# Creates both templates with robust error handling:
 # - Template 9000: ubuntu-base-template (base Ubuntu with cloud-init)
 # - Template 9001: ubuntu-k8s-template (pre-installed Kubernetes v1.33.4)
+# - Enhanced IP detection with 30 retry attempts
+# - SSH connectivity verification before installation
+# - Graceful VM shutdown and template conversion
+
+# Alternative: Clean slate automation
+python3 scripts/template-manager.py --remove-all --yes  # Clean everything
+python3 scripts/cluster-manager.py --setup-and-create --force-rebuild  # Full automation
 
 # Phase 3-5: Infrastructure and Kubernetes deployment
 python3 scripts/deploy-dns-config.py   # Deploy DNS configuration

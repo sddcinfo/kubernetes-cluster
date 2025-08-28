@@ -1,371 +1,198 @@
-# Production-Ready Terraform Configuration for Proxmox Kubernetes
-# This captures all lessons learned from our trial-and-error process
+# Production-Ready OpenTofu/Terraform Configuration for Proxmox Kubernetes
+# Uses our validated templates (9000 base, 9001 kubernetes-ready)
 
 terraform {
   required_providers {
-    # Based on research: BPG provider is more feature-complete, Telmate is more stable
-    # We'll configure both and use the one that works
     proxmox = {
-      source  = "bpg/proxmox"
-      version = "~> 0.70"
+      source  = "telmate/proxmox"
+      version = "3.0.2-rc04"
     }
   }
   required_version = ">= 1.0"
 }
 
-# Variables for environment flexibility
-variable "proxmox_host" {
-  description = "Proxmox host IP"
-  type        = string
-  default     = "10.10.1.21"
-}
-
-variable "proxmox_api_token" {
-  description = "Proxmox API token (format: user@realm!tokenname=secret)"
-  type        = string
-  sensitive   = true
-  default     = "packer@pam!packer=7b2a3da7-bd30-4772-a6b0-874aa9b2f3a5"
-}
-
-variable "proxmox_user" {
-  description = "Proxmox username for password auth fallback"
-  type        = string
-  default     = "root@pam"
-}
-
-variable "proxmox_password" {
-  description = "Proxmox password for fallback auth"
-  type        = string
-  sensitive   = true
-  default     = ""
-}
-
-variable "golden_template_id" {
-  description = "Golden template VM ID to clone from"
-  type        = number
-  default     = 9001
-}
-
-variable "ssh_public_key" {
-  description = "SSH public key for VM access"
-  type        = string
-  default     = ""
-}
-
-# Locals for VM configurations
-locals {
-  # Control plane nodes configuration - Updated for new IP allocation
-  # VIP 10.10.1.30 reserved for HA control plane endpoint
-  control_plane_nodes = {
-    "k8s-control-1" = {
-      node_name   = "node1"
-      vm_id       = 131
-      ip_address  = "10.10.1.31"
-      cores       = 4
-      memory      = 8192
-      disk_size   = 64
-    }
-    "k8s-control-2" = {
-      node_name   = "node2"
-      vm_id       = 132
-      ip_address  = "10.10.1.32"
-      cores       = 4
-      memory      = 8192
-      disk_size   = 64
-    }
-    "k8s-control-3" = {
-      node_name   = "node3"
-      vm_id       = 133
-      ip_address  = "10.10.1.33"
-      cores       = 4
-      memory      = 8192
-      disk_size   = 64
-    }
-  }
-  
-  # Worker nodes configuration - Updated for new IP allocation
-  worker_nodes = {
-    "k8s-worker-1" = {
-      node_name   = "node1"
-      vm_id       = 140
-      ip_address  = "10.10.1.40"
-      cores       = 6
-      memory      = 24576
-      disk_size   = 128
-    }
-    "k8s-worker-2" = {
-      node_name   = "node2"
-      vm_id       = 141
-      ip_address  = "10.10.1.41"
-      cores       = 6
-      memory      = 24576
-      disk_size   = 128
-    }
-    "k8s-worker-3" = {
-      node_name   = "node3"
-      vm_id       = 142
-      ip_address  = "10.10.1.42"
-      cores       = 6
-      memory      = 24576
-      disk_size   = 128
-    }
-    "k8s-worker-4" = {
-      node_name   = "node4"
-      vm_id       = 143
-      ip_address  = "10.10.1.43"
-      cores       = 6
-      memory      = 24576
-      disk_size   = 128
-    }
-  }
-  
-  # All VMs combined
-  all_vms = merge(local.control_plane_nodes, local.worker_nodes)
-}
-
-# Primary provider configuration (BPG with API token)
+# Provider configuration
 provider "proxmox" {
-  endpoint  = "https://${var.proxmox_host}:8006/"
-  api_token = var.proxmox_api_token
-  insecure  = true
+  pm_api_url          = "https://${var.proxmox_host}:8006/api2/json"
+  pm_api_token_id     = split("=", var.proxmox_token)[0]
+  pm_api_token_secret = split("=", var.proxmox_token)[1]
+  pm_tls_insecure     = true
+  pm_parallel         = 1  # Workaround for VM.Monitor permission issue
   
-  # SSH configuration for operations requiring SSH access
-  ssh {
-    agent    = false
-    username = "root"
-    # Note: Add private key if needed for advanced operations
+  # Optional: Enable debug logging
+  # pm_log_enable = true
+  # pm_log_file   = "terraform-plugin-proxmox.log"
+}
+
+# Local variables for cluster configuration
+locals {
+  # Determine actual node counts based on profile
+  actual_control_count = var.cluster_profile == "single-node" ? 1 : (
+    var.cluster_profile == "single-master" ? 1 : var.control_plane_count
+  )
+  
+  actual_worker_count = var.cluster_profile == "single-node" ? 0 : (
+    var.cluster_profile == "single-master" ? 2 : var.worker_count
+  )
+  
+  # Generate control plane VM configurations
+  control_plane_vms = {
+    for i in range(local.actual_control_count) : 
+    "k8s-control-${i + 1}" => {
+      vm_id       = 130 + i + 1  # 131, 132, 133
+      ip_address  = var.control_plane_ips[i]
+      template_id = var.k8s_template_id
+      cores       = var.control_plane_cores
+      memory      = var.control_plane_memory
+      disk_size   = var.control_plane_disk
+      node_type   = "control-plane"
+      target_node = var.proxmox_node
+    }
   }
   
-  # Timeouts based on our experience
-  tmp_dir = "/var/tmp"
-}
-
-# Test connectivity before proceeding
-data "external" "connectivity_check" {
-  program = ["bash", "-c", <<-EOF
-    # Test API connectivity
-    response=$(curl -k -s -H "Authorization: PVEAPIToken=${var.proxmox_api_token}" \
-      "https://${var.proxmox_host}:8006/api2/json/version" 2>/dev/null || echo "")
-    
-    if echo "$response" | grep -q "version"; then
-      echo '{"status": "success", "message": "API is accessible"}'
-    else
-      echo '{"status": "failed", "message": "API is not accessible"}'
-      exit 1
-    fi
-  EOF
-  ]
-}
-
-# Verify golden template exists
-data "external" "template_check" {
-  program = ["bash", "-c", <<-EOF
-    # Check if golden template exists
-    response=$(curl -k -s -H "Authorization: PVEAPIToken=${var.proxmox_api_token}" \
-      "https://${var.proxmox_host}:8006/api2/json/nodes/node1/qemu/${var.golden_template_id}/config" 2>/dev/null || echo "")
-    
-    if echo "$response" | grep -q "template.*1"; then
-      echo '{"status": "success", "template_id": "${var.golden_template_id}"}'
-    else
-      echo '{"status": "failed", "template_id": "${var.golden_template_id}"}'
-      exit 1
-    fi
-  EOF
-  ]
+  # Generate worker VM configurations
+  worker_vms = {
+    for i in range(local.actual_worker_count) : 
+    "k8s-worker-${i + 1}" => {
+      vm_id       = 140 + i  # 140, 141, 142, 143
+      ip_address  = var.worker_ips[i]
+      template_id = var.k8s_template_id
+      cores       = var.worker_cores
+      memory      = var.worker_memory
+      disk_size   = var.worker_disk
+      node_type   = "worker"
+      target_node = var.proxmox_node
+    }
+  }
   
-  depends_on = [data.external.connectivity_check]
+  # Combine all VMs
+  all_vms = merge(local.control_plane_vms, local.worker_vms)
 }
 
-# Control Plane VMs
-resource "proxmox_virtual_environment_vm" "control_plane" {
-  for_each = local.control_plane_nodes
+# Kubernetes Nodes (Control Plane and Workers)
+resource "proxmox_vm_qemu" "kubernetes_nodes" {
+  for_each = local.all_vms
   
+  # Basic settings
   name        = each.key
-  description = "Kubernetes Control Plane Node - ${each.key}"
-  node_name   = each.value.node_name
-  vm_id       = each.value.vm_id
+  description = "Kubernetes ${each.value.node_type == "control-plane" ? "Control Plane" : "Worker"} Node"
+  target_node = each.value.target_node
+  vmid        = each.value.vm_id
   
-  # Clone from golden template
-  clone {
-    vm_id   = var.golden_template_id
-    full    = true
-    retries = 3
-  }
+  # Clone from template
+  clone      = each.value.template_id == var.k8s_template_id ? "ubuntu-k8s-template" : "ubuntu-base-template"
+  full_clone = true
   
-  # VM Resources
+  # Hardware
   cpu {
-    cores = each.value.cores
+    cores   = each.value.cores
+    sockets = 1
+  }
+  memory  = each.value.memory
+  balloon = 0  # Disable for Kubernetes
+  
+  # Boot configuration
+  boot     = "order=scsi0"
+  bootdisk = "scsi0"
+  
+  # Enable QEMU agent
+  agent = 1
+  
+  # Cloud-init settings
+  os_type    = "cloud-init"
+  ipconfig0  = "ip=${each.value.ip_address}/24,gw=${var.network_gateway}"
+  nameserver = var.network_gateway
+  ciuser     = "sysadmin"
+  cipassword = "password"  # Should be changed after deployment
+  
+  # SSH keys
+  sshkeys = file(var.ssh_public_key_path)
+  
+  # Network
+  network {
+    id     = 0
+    model  = "virtio"
+    bridge = "vmbr0"
   }
   
-  memory {
-    dedicated = each.value.memory
+  # Storage - will be resized from template
+  disk {
+    slot     = "scsi0"
+    type     = "disk"
+    storage  = "rbd"
+    size     = each.value.disk_size
+    backup   = true
+    iothread = true
+  }
+  
+  # Ensure VM starts
+  onboot = true
+  
+  # Tags for organization
+  tags = "${each.value.node_type},kubernetes,${var.cluster_profile}"
+  
+  # Lifecycle rules
+  lifecycle {
+    ignore_changes = [
+      cipassword,
+      disk,  # Disk inherited from template
+    ]
+  }
+}
+
+# Optional: HAProxy Load Balancer for HA clusters
+resource "proxmox_vm_qemu" "haproxy_lb" {
+  count = var.cluster_profile == "ha-cluster" ? 1 : 0
+  
+  name        = "k8s-haproxy"
+  description = "HAProxy Load Balancer for Kubernetes API"
+  target_node = var.proxmox_node
+  vmid        = 130  # Use VM ID 130 for HAProxy (VIP will be 10.10.1.30)
+  
+  # Clone from base template
+  clone      = "ubuntu-base-template"
+  full_clone = true
+  
+  # Minimal hardware for load balancer
+  cpu {
+    cores   = 2
+    sockets = 1
+  }
+  memory  = 2048
+  balloon = 0
+  
+  # Boot configuration
+  boot     = "order=scsi0"
+  bootdisk = "scsi0"
+  agent    = 1
+  
+  # Cloud-init settings - using VIP address
+  os_type    = "cloud-init"
+  ipconfig0  = "ip=${var.control_plane_vip}/24,gw=${var.network_gateway}"
+  nameserver = var.network_gateway
+  ciuser     = "sysadmin"
+  cipassword = "password"
+  
+  # SSH keys
+  sshkeys = file(var.ssh_public_key_path)
+  
+  # Network
+  network {
+    id     = 0
+    model  = "virtio"
+    bridge = "vmbr0"
   }
   
   # Storage
   disk {
-    datastore_id = "rbd"  # Use Ceph RBD for production
-    interface    = "scsi0"
-    size         = each.value.disk_size
+    slot     = "scsi0"
+    type     = "disk"
+    storage  = "rbd"
+    size     = "20G"
+    backup   = true
+    iothread = true
   }
   
-  # Network
-  network_device {
-    bridge = "vmbr0"
-    model  = "virtio"
-  }
-  
-  # Basic cloud-init for hostname and networking
-  initialization {
-    ip_config {
-      ipv4 {
-        address = "${each.value.ip_address}/24"
-        gateway = "10.10.1.1"
-      }
-    }
-    
-    dns {
-      servers = ["10.10.1.1", "8.8.8.8"]
-    }
-    
-    user_account {
-      keys     = var.ssh_public_key != "" ? [var.ssh_public_key] : [file("~/.ssh/sysadmin_automation_key.pub")]
-      password = "kubernetes"
-      username = "sysadmin"
-    }
-    
-    # Hostname set via cloud-init user-data
-  }
-  
-  # Agent for better integration
-  agent {
-    enabled = true
-    timeout = "15m"
-  }
-  
-  # Start VMs
-  started = true
-  
-  # Lifecycle management
-  lifecycle {
-    ignore_changes = [
-      # Ignore changes to these after initial creation
-      clone,
-    ]
-  }
-  
-  depends_on = [data.external.template_check]
-}
-
-# Worker VMs
-resource "proxmox_virtual_environment_vm" "workers" {
-  for_each = local.worker_nodes
-  
-  name        = each.key
-  description = "Kubernetes Worker Node - ${each.key}"
-  node_name   = each.value.node_name
-  vm_id       = each.value.vm_id
-  
-  # Clone from golden template
-  clone {
-    vm_id   = var.golden_template_id
-    full    = true
-    retries = 3
-  }
-  
-  # VM Resources
-  cpu {
-    cores = each.value.cores
-  }
-  
-  memory {
-    dedicated = each.value.memory
-  }
-  
-  # Storage
-  disk {
-    datastore_id = "rbd"  # Use Ceph RBD for production
-    interface    = "scsi0"
-    size         = each.value.disk_size
-  }
-  
-  # Network
-  network_device {
-    bridge = "vmbr0"
-    model  = "virtio"
-  }
-  
-  # Basic cloud-init for hostname and networking
-  initialization {
-    ip_config {
-      ipv4 {
-        address = "${each.value.ip_address}/24"
-        gateway = "10.10.1.1"
-      }
-    }
-    
-    dns {
-      servers = ["10.10.1.1", "8.8.8.8"]
-    }
-    
-    user_account {
-      keys     = var.ssh_public_key != "" ? [var.ssh_public_key] : [file("~/.ssh/sysadmin_automation_key.pub")]
-      password = "kubernetes"
-      username = "sysadmin"
-    }
-    
-    # Hostname set via cloud-init user-data
-  }
-  
-  # Agent for better integration
-  agent {
-    enabled = true
-    timeout = "15m"
-  }
-  
-  # Start VMs
-  started = true
-  
-  # Lifecycle management
-  lifecycle {
-    ignore_changes = [
-      # Ignore changes to these after initial creation
-      clone,
-    ]
-  }
-  
-  depends_on = [data.external.template_check]
-}
-
-# Outputs for Ansible inventory and verification
-output "control_plane_ips" {
-  description = "Control plane node IP addresses"
-  value = {
-    for name, vm in proxmox_virtual_environment_vm.control_plane : name => {
-      ip_address = vm.ipv4_addresses[0][0]
-      vm_id      = vm.vm_id
-      node_name  = vm.node_name
-    }
-  }
-}
-
-output "worker_ips" {
-  description = "Worker node IP addresses"
-  value = {
-    for name, vm in proxmox_virtual_environment_vm.workers : name => {
-      ip_address = vm.ipv4_addresses[0][0]
-      vm_id      = vm.vm_id
-      node_name  = vm.node_name
-    }
-  }
-}
-
-output "deployment_summary" {
-  description = "Deployment summary"
-  value = {
-    golden_template_id     = var.golden_template_id
-    total_vms_created     = length(local.all_vms)
-    control_plane_count   = length(local.control_plane_nodes)
-    worker_count         = length(local.worker_nodes)
-    deployment_timestamp = timestamp()
-  }
+  onboot = true
+  tags   = "haproxy,loadbalancer,kubernetes"
 }

@@ -62,6 +62,7 @@ class Config:
     """Configuration management"""
     def __init__(self):
         self.PROXMOX_HOST = "10.10.1.21"
+        self.PROXMOX_NODE = "node1"
         self.SSH_KEY_PATH = "/home/sysadmin/.ssh/sysadmin_automation_key"
         self.SSH_PUB_KEY_PATH = "/home/sysadmin/.ssh/sysadmin_automation_key.pub"
         self.STATE_FILE = Path.home() / ".kube-cluster" / "foundation_state.json"
@@ -360,6 +361,7 @@ class ClusterManager:
         phases = [
             ("Environment Validation", self.validate_environment),
             ("Tools and Storage Setup", self.setup_tools_and_storage),
+            ("Terraform User Setup", self.setup_terraform_user),
             ("Cloud Image Preparation", self.prepare_cloud_image),
         ]
         
@@ -454,6 +456,133 @@ class ClusterManager:
         except subprocess.CalledProcessError as e:
             log_error(f"Failed to setup RBD-ISO storage: {e}")
             return False
+    
+    def setup_terraform_user(self) -> bool:
+        """Setup Terraform user and permissions with token management"""
+        phase = "terraform_user"
+        
+        # Check if we have a cached token
+        cached_token = self.state.state.get("phases", {}).get(phase, {}).get("details", {}).get("token")
+        
+        if (self.state.is_phase_complete(phase) and 
+            cached_token and 
+            phase not in self.skip_phases and 
+            not self.force_rebuild):
+            
+            # Verify user exists and token still works
+            returncode, stdout, stderr = self.run_ssh_command("pveum user list | grep 'terraform@pam'", timeout=10)
+            if returncode != 0:
+                log_warning("Terraform user missing, invalidating cached state and re-creating...")
+                self.state.invalidate_phase(phase)
+            elif self._verify_terraform_token(cached_token):
+                log_skip("Terraform user already configured and token verified")
+                self._write_terraform_credentials(cached_token)
+                return True
+            else:
+                log_warning("Cached token is invalid, regenerating...")
+                self.state.invalidate_phase(phase)
+        
+        log_step("Setting up Terraform user and permissions...")
+        
+        try:
+            # Setup or update terraform user
+            returncode, stdout, stderr = self.run_ssh_command("pveum user list | grep 'terraform@pam'", timeout=10)
+            
+            if returncode != 0:
+                log_info("Creating Terraform user...")
+                self.run_ssh_command("pveum user add terraform@pam --comment 'Terraform automation user'", timeout=60)
+            else:
+                log_info("Terraform user already exists, updating permissions...")
+            
+            # Workaround for VM.Monitor permission bug in Telmate provider with Proxmox 9
+            # Use Administrator role as suggested in forum: https://forum.proxmox.com/threads/proxmox-9-terraform-provider-missing-vm-monitor-permission-but-it-doesnt-exist.170212/
+            log_info("Assigning Administrator role (workaround for VM.Monitor bug)...")
+            self.run_ssh_command("pveum aclmod / -user terraform@pam -role Administrator", timeout=60)
+            
+            # Create API token
+            log_info("Creating API token for terraform user...")
+            self.run_ssh_command("pveum user token remove terraform@pam terraform", timeout=60)
+            returncode, stdout, stderr = self.run_ssh_command("pveum user token add terraform@pam terraform --comment 'Terraform automation token' --output-format json", timeout=60)
+            
+            import json
+            token_data = json.loads(stdout.strip())
+            terraform_token = token_data.get("value")
+            
+            if not terraform_token:
+                log_error("Failed to extract Terraform token")
+                return False
+            
+            # Disable privilege separation
+            self.run_ssh_command("pveum user token modify terraform@pam terraform --privsep 0", timeout=60)
+            
+            # Save state with token
+            self.state.mark_phase_complete(phase, {"token": terraform_token})
+            
+            # Write credentials to file
+            self._write_terraform_credentials(terraform_token)
+            
+            log_info("Terraform user setup completed")
+            return True
+            
+        except subprocess.CalledProcessError as e:
+            log_error(f"Failed to setup Terraform user: {e}")
+            return False
+        except json.JSONDecodeError as e:
+            log_error(f"Failed to parse token response: {e}")
+            return False
+    
+    def _verify_terraform_token(self, token: str) -> bool:
+        """Verify that a Terraform token is still valid"""
+        try:
+            # Test the token by making a simple API call
+            test_cmd = f'curl -s -k -H "Authorization: PVEAPIToken=terraform@pam!terraform={token}" https://{self.config.PROXMOX_HOST}:8006/api2/json/version'
+            returncode, stdout, stderr = self.run_local_command(test_cmd, timeout=10)
+            
+            if returncode == 0:
+                try:
+                    import json
+                    response = json.loads(stdout)
+                    return "data" in response
+                except json.JSONDecodeError:
+                    return False
+            
+            return False
+            
+        except Exception:
+            return False
+    
+    def _write_terraform_credentials(self, token: str) -> None:
+        """Write Terraform credentials to configuration files"""
+        try:
+            # Get absolute path to project root
+            project_root = Path(__file__).parent.parent
+            terraform_dir = project_root / "terraform"
+            
+            # Ensure terraform directory exists
+            terraform_dir.mkdir(exist_ok=True)
+            
+            # Write environment file for sourcing
+            env_content = f"""# Terraform Environment Configuration
+# Generated by cluster-manager.py script
+export TF_VAR_proxmox_host="{self.config.PROXMOX_HOST}"
+export TF_VAR_proxmox_token="terraform@pam!terraform={token}"
+export TF_VAR_proxmox_node="{self.config.PROXMOX_NODE}"
+"""
+            
+            env_file = terraform_dir / ".env"
+            env_file.write_text(env_content)
+            log_info(f"Created Terraform environment file: {env_file}")
+            
+            # Update terraform.tfvars with current token
+            tfvars_file = terraform_dir / "terraform.tfvars"
+            tfvars_content = f'''proxmox_token = "terraform@pam!terraform={token}"
+ssh_public_key_path = "/home/sysadmin/.ssh/sysadmin_automation_key.pub"
+'''
+            tfvars_file.write_text(tfvars_content)
+            log_info(f"Updated Terraform variables file: {tfvars_file}")
+            
+        except Exception as e:
+            log_error(f"Failed to write Terraform credentials: {e}")
     
     def prepare_cloud_image(self) -> bool:
         """Prepare cloud image with intelligent re-use"""
@@ -657,10 +786,11 @@ echo "Cloud image prepared successfully in $TEMPLATE_DIR"
         if not self.install_kubernetes_components(vm_ip):
             return False
         
-        # Shutdown and convert to template
+        # Shutdown and convert to template with robust handling
         logger.info("Shutting down VM...")
-        self.run_ssh_command(f"qm shutdown {template_id}", timeout=300)
-        time.sleep(10)  # Wait for clean shutdown
+        if not self._shutdown_vm_gracefully(template_id):
+            logger.error("Failed to shutdown VM gracefully")
+            return False
         
         logger.info("Converting to template...")
         returncode, stdout, stderr = self.run_ssh_command(f"qm template {template_id}", timeout=300)
@@ -762,49 +892,86 @@ echo "VM {vm_id} created successfully"
             logger.error(f"Failed to create VM: {e}")
             return False
     
-    def get_vm_ip(self, vm_id: int, max_attempts: int = 20) -> Optional[str]:
-        """Get VM IP address via guest agent."""
+    def get_vm_ip(self, vm_id: int, max_attempts: int = 30) -> Optional[str]:
+        """Get VM IP address via guest agent with improved reliability."""
+        logger.info(f"Waiting for VM {vm_id} to get IP address...")
+        
         for attempt in range(max_attempts):
-            cmd = f"qm guest cmd {vm_id} network-get-interfaces 2>/dev/null"
-            returncode, stdout, stderr = self.run_ssh_command(cmd, timeout=30)
+            try:
+                # First check if VM is running
+                status_cmd = f"qm status {vm_id}"
+                returncode, stdout, stderr = self.run_ssh_command(status_cmd, timeout=10)
+                if returncode != 0 or 'running' not in stdout:
+                    logger.info(f"VM {vm_id} not running yet, waiting...")
+                    time.sleep(5)
+                    continue
+                
+                # Try to get network interfaces
+                cmd = f"qm guest cmd {vm_id} network-get-interfaces"
+                returncode, stdout, stderr = self.run_ssh_command(cmd, timeout=20)
+                
+                if returncode == 0 and stdout.strip():
+                    try:
+                        # Parse guest agent JSON response
+                        data = json.loads(stdout)
+                        # Handle both old format (wrapped in 'return') and new format (direct array)
+                        interfaces = data.get('return', data) if isinstance(data, dict) else data
+                        
+                        if isinstance(interfaces, list):
+                            for interface in interfaces:
+                                if interface.get('name') not in ['lo', None]:
+                                    ip_addresses = interface.get('ip-addresses', [])
+                                    for addr in ip_addresses:
+                                        if addr.get('ip-address-type') == 'ipv4':
+                                            ip = addr.get('ip-address')
+                                            if ip and ip.startswith('10.10.1.') and ip != '127.0.0.1':
+                                                logger.info(f"✅ VM {vm_id} got IP: {ip}")
+                                                return ip
+                    except (json.JSONDecodeError, KeyError, TypeError) as e:
+                        logger.debug(f"JSON parse error (attempt {attempt + 1}): {e}")
+                        pass
+                else:
+                    logger.debug(f"Guest agent not ready (attempt {attempt + 1}): returncode={returncode}")
             
-            if returncode == 0 and stdout:
-                try:
-                    # Parse guest agent JSON response
-                    data = json.loads(stdout)
-                    # Handle both old format (wrapped in 'return') and new format (direct array)
-                    interfaces = data.get('return', data) if isinstance(data, dict) else data
-                    for interface in interfaces:
-                        if interface.get('name') != 'lo':
-                            for addr in interface.get('ip-addresses', []):
-                                if addr.get('ip-address-type') == 'ipv4':
-                                    ip = addr.get('ip-address')
-                                    if ip and ip != '127.0.0.1':
-                                        return ip
-                except (json.JSONDecodeError, KeyError):
-                    pass
+            except Exception as e:
+                logger.debug(f"Exception in get_vm_ip (attempt {attempt + 1}): {e}")
             
             logger.info(f"Attempt {attempt + 1}/{max_attempts} - waiting for VM {vm_id} IP...")
-            time.sleep(10)
+            time.sleep(15 if attempt < 5 else 20)  # Longer wait for later attempts
         
+        logger.error(f"Failed to get IP for VM {vm_id} after {max_attempts} attempts")
         return None
     
     def install_kubernetes_components(self, vm_ip: str) -> bool:
-        """Install Kubernetes components on VM"""
+        """Install Kubernetes components on VM with robust retry logic"""
         logger.info("Installing Kubernetes components...")
+        
+        # Wait for SSH to be fully ready
+        if not self._wait_for_ssh(vm_ip, max_attempts=20):
+            logger.error("SSH connection failed after waiting")
+            return False
         
         k8s_install_script = f'''#!/bin/bash
 set -euo pipefail
 
+# Set environment variables to handle interactive prompts
+export DEBIAN_FRONTEND=noninteractive  
+export NEEDRESTART_MODE=a
+export NEEDRESTART_SUSPEND=1
+
+# Wait for cloud-init to complete if running
+cloud-init status --wait || true
+
 # Update system
-apt-get update
+apt-get update -y
 apt-get upgrade -y
 
 # Install Kubernetes repository and components
+mkdir -p /etc/apt/keyrings
 curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.33/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
 echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.33/deb/ /' | tee /etc/apt/sources.list.d/kubernetes.list
 
-apt-get update
+apt-get update -y
 apt-get install -y kubelet={self.k8s_version}-1.1 kubeadm={self.k8s_version}-1.1 kubectl={self.k8s_version}-1.1
 apt-mark hold kubelet kubeadm kubectl
 
@@ -824,7 +991,7 @@ modprobe overlay
 echo 'net.bridge.bridge-nf-call-iptables = 1' | tee /etc/sysctl.d/k8s.conf
 echo 'net.bridge.bridge-nf-call-ip6tables = 1' | tee -a /etc/sysctl.d/k8s.conf
 echo 'net.ipv4.ip_forward = 1' | tee -a /etc/sysctl.d/k8s.conf
-sysctl --system
+sysctl --system >/dev/null 2>&1
 
 # Disable swap
 swapoff -a
@@ -838,31 +1005,118 @@ apt-get autoremove -y
 apt-get autoclean
 rm -rf /var/cache/apt/archives/*
 
+# Verify installation
+kubectl version --client >/dev/null 2>&1 && echo "✅ kubectl working"
+kubeadm version >/dev/null 2>&1 && echo "✅ kubeadm working"
+containerd --version >/dev/null 2>&1 && echo "✅ containerd working"
+
 echo "Kubernetes components installed successfully"
+
+# Ensure clean exit
+exit 0
 '''
         
+        max_retries = 3
+        for retry in range(max_retries):
+            try:
+                logger.info(f"Kubernetes installation attempt {retry + 1}/{max_retries}")
+                
+                # SSH command with better connection settings
+                ssh_cmd = f"ssh -o ConnectTimeout=30 -o ServerAliveInterval=10 -o ServerAliveCountMax=3 -o StrictHostKeyChecking=no -i {self.config.SSH_KEY_PATH} sysadmin@{vm_ip}"
+                
+                # Create script on VM using base64 encoding for safety
+                script_b64 = base64.b64encode(k8s_install_script.encode()).decode()
+                script_transfer = f"echo '{script_b64}' | {ssh_cmd} 'base64 -d > /tmp/install_k8s.sh'"
+                
+                logger.info("Transferring installation script...")
+                self.run_local_command(script_transfer, timeout=120)
+                
+                # Execute script with longer timeout and better error handling
+                script_exec = f"{ssh_cmd} 'chmod +x /tmp/install_k8s.sh && sudo /tmp/install_k8s.sh'"
+                logger.info("Executing kubernetes installation (this may take 10-15 minutes)...")
+                
+                result = self.run_local_command(script_exec, timeout=2400)  # 40 minutes timeout
+                
+                # Cleanup
+                cleanup = f"{ssh_cmd} 'rm -f /tmp/install_k8s.sh'"
+                self.run_local_command(cleanup, timeout=60)
+                
+                # Verify installation worked
+                verify_cmd = f"{ssh_cmd} 'kubectl version --client && kubeadm version && containerd --version'"
+                verify_result = self.run_local_command(verify_cmd, timeout=60)
+                
+                logger.info("✅ Kubernetes components installed and verified successfully")
+                return True
+                
+            except subprocess.CalledProcessError as e:
+                logger.warning(f"Kubernetes installation attempt {retry + 1} failed: {e}")
+                if retry < max_retries - 1:
+                    logger.info(f"Retrying in 30 seconds...")
+                    time.sleep(30)
+                else:
+                    logger.error("All kubernetes installation attempts failed")
+                    return False
+            except Exception as e:
+                logger.error(f"Unexpected error during kubernetes installation: {e}")
+                if retry < max_retries - 1:
+                    time.sleep(30)
+                else:
+                    return False
+        
+        return False
+    
+    def _wait_for_ssh(self, vm_ip: str, max_attempts: int = 20) -> bool:
+        """Wait for SSH to be ready on the VM"""
+        logger.info(f"Waiting for SSH connectivity to {vm_ip}...")
+        
+        for attempt in range(max_attempts):
+            try:
+                ssh_cmd = f"ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -i {self.config.SSH_KEY_PATH} sysadmin@{vm_ip} 'echo SSH_READY'"
+                result = self.run_local_command(ssh_cmd, timeout=10)
+                if 'SSH_READY' in result.stdout:
+                    logger.info(f"✅ SSH ready on {vm_ip}")
+                    return True
+            except:
+                pass
+            
+            logger.info(f"SSH attempt {attempt + 1}/{max_attempts} for {vm_ip}...")
+            time.sleep(10)
+        
+        logger.error(f"SSH not ready on {vm_ip} after {max_attempts} attempts")
+        return False
+    
+    def _shutdown_vm_gracefully(self, vm_id: int, max_wait: int = 180) -> bool:
+        """Gracefully shutdown VM with fallback to force stop"""
         try:
-            # Copy and execute installation script
-            ssh_cmd = f"ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no -i {self.config.SSH_KEY_PATH} sysadmin@{vm_ip}"
+            # Try graceful shutdown first
+            logger.info(f"Attempting graceful shutdown of VM {vm_id}...")
+            self.run_ssh_command(f"qm shutdown {vm_id}", timeout=30)
             
-            # Create script on VM using base64 encoding for safety
-            script_b64 = base64.b64encode(k8s_install_script.encode()).decode()
-            script_transfer = f"echo '{script_b64}' | {ssh_cmd} 'base64 -d > /tmp/install_k8s.sh'"
-            self.run_local_command(script_transfer, timeout=60)
+            # Wait for VM to stop
+            for attempt in range(max_wait // 5):
+                returncode, stdout, stderr = self.run_ssh_command(f"qm status {vm_id}", timeout=10)
+                if returncode == 0 and 'stopped' in stdout:
+                    logger.info(f"✅ VM {vm_id} shutdown gracefully")
+                    return True
+                time.sleep(5)
             
-            # Execute script
-            script_exec = f"{ssh_cmd} 'chmod +x /tmp/install_k8s.sh && sudo /tmp/install_k8s.sh'"
-            self.run_local_command(script_exec, timeout=1200)  # 20 minutes timeout
+            # If graceful shutdown failed, force stop
+            logger.warning(f"Graceful shutdown timed out, forcing stop of VM {vm_id}")
+            self.run_ssh_command(f"qm stop {vm_id}", timeout=60)
             
-            # Cleanup
-            cleanup = f"{ssh_cmd} 'rm -f /tmp/install_k8s.sh'"
-            self.run_local_command(cleanup, timeout=60)
+            # Wait for forced stop
+            for attempt in range(12):  # 60 seconds max
+                returncode, stdout, stderr = self.run_ssh_command(f"qm status {vm_id}", timeout=10)
+                if returncode == 0 and 'stopped' in stdout:
+                    logger.info(f"✅ VM {vm_id} force stopped successfully")
+                    return True
+                time.sleep(5)
             
-            logger.info("Kubernetes components installed successfully")
-            return True
+            logger.error(f"Failed to stop VM {vm_id}")
+            return False
             
-        except subprocess.CalledProcessError as e:
-            logger.error(f"Failed to install Kubernetes components: {e}")
+        except Exception as e:
+            logger.error(f"Exception during VM shutdown: {e}")
             return False
     
     # === UTILITY METHODS ===
