@@ -475,15 +475,9 @@ etcd_election_timeout: "2500"
             # This prevents overwriting the generated inventory
             print("Applying custom configuration...")
             
-        # Apply patches
-        patch_file = self.project_dir / "patches" / "kubespray-ansible-cfg.patch"
-        if patch_file.exists():
-            self.run_command(
-                ["git", "apply", "--ignore-whitespace", str(patch_file)],
-                "Applying ansible.cfg patch",
-                cwd=self.kubespray_dir,
-                check=False
-            )
+        # Note: Removed obsolete patch application
+        # Previous patch optimized timeout 600->300 and removed ara_default callback
+        # Current Kubespray v2.26.0 already has timeout=300, and ara isn't installed (harmless)
             
         print("Kubespray configuration completed")
         
