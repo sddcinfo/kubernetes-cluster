@@ -76,8 +76,8 @@ def generate_kubespray_inventory(terraform_output):
     
     # Add global variables
     inventory["all"]["vars"] = {
-        "ansible_user": "ubuntu",
-        "ansible_ssh_private_key_file": "/home/sysadmin/.ssh/sysladmin_automation_key",
+        "ansible_user": "sysadmin",
+        "ansible_ssh_private_key_file": "/home/sysadmin/.ssh/sysadmin_automation_key",
         "ansible_ssh_common_args": "-o StrictHostKeyChecking=no"
     }
     
@@ -110,6 +110,8 @@ def write_inventory_ini(inventory, output_path):
             for hostname in section_data["hosts"].keys():
                 lines.append(hostname)
         elif "children" in section_data:
+            # This is a children section - modify the section name
+            lines[-1] = f"[{section_name}:children]"
             for child in section_data["children"]:
                 lines.append(child)
         
