@@ -2,7 +2,7 @@
 
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Kubernetes](https://img.shields.io/badge/Kubernetes-1.30.4-326CE5?logo=kubernetes&logoColor=white)](https://kubernetes.io/)
-[![Kubespray](https://img.shields.io/badge/Kubespray-2.26.0-FF6B35)](https://kubespray.io/)
+[![Kubespray](https://img.shields.io/badge/Kubespray-2.28.1-FF6B35)](https://kubespray.io/)
 [![Proxmox](https://img.shields.io/badge/Proxmox_VE-8.0+-E57000?logo=proxmox&logoColor=white)](https://www.proxmox.com/)
 
 Production-grade automation framework for deploying highly available Kubernetes clusters on Proxmox VE infrastructure using industry-standard tooling and best practices.
@@ -41,8 +41,8 @@ This solution provides comprehensive automation for deploying and managing produ
 | Component | Technology | Version | Purpose |
 |-----------|------------|---------|---------|
 | **Infrastructure** | OpenTofu | 1.7+ | Declarative infrastructure provisioning |
-| **Kubernetes** | Kubespray | 2.26.0 | Production-ready cluster deployment |
-| **Container Network** | Calico | 3.26+ | BGP-based CNI with proven reliability |
+| **Kubernetes** | Kubespray | 2.28.1 | Production-ready cluster deployment |
+| **Container Network** | Cilium | 1.17+ | eBPF-based CNI with advanced networking and security |
 | **Storage** | Proxmox CSI | Latest | Dynamic persistent volume provisioning |
 | **Load Balancing** | MetalLB | Latest | Bare-metal LoadBalancer implementation |
 | **Orchestration** | Python | 3.11+ | Deployment coordination and automation |
@@ -56,7 +56,7 @@ The solution deploys a production-grade Kubernetes cluster with the following to
 - **Control Plane**: 3 nodes with stacked etcd for high availability
 - **Worker Nodes**: 4+ nodes with configurable scaling
 - **Load Balancer**: HAProxy + Keepalived for control plane access
-- **Network**: Calico CNI with BGP routing
+- **Network**: Cilium CNI with eBPF dataplane and optional BGP
 - **Storage**: Proxmox CSI with Ceph RBD integration
 
 ### Network Topology
@@ -247,6 +247,12 @@ kubectl port-forward -n monitoring svc/prometheus-grafana 3000:80
 ```bash
 kubectl port-forward -n monitoring svc/prometheus-kube-prometheus-prometheus 9090:9090
 # Access: http://localhost:9090
+```
+
+**Cilium Hubble UI**
+```bash
+kubectl port-forward -n kube-system svc/hubble-ui 12000:80
+# Access: http://localhost:12000
 ```
 
 ### Scaling Operations

@@ -18,7 +18,7 @@ class ClusterDeployer:
                  force_recreate=False):
         self.project_dir = Path(__file__).parent.parent
         self.terraform_dir = self.project_dir / "terraform"
-        self.kubespray_version = "v2.26.0"
+        self.kubespray_version = "v2.28.1"
         self.kubespray_dir = self.project_dir / "kubespray"
         self.venv_dir = self.project_dir / "kubespray" / "venv"
         self.config_dir = self.project_dir / "kubespray-config"
@@ -422,7 +422,7 @@ download_always_pull: false
 # Container runtime settings for containerd
 # These optimize container image handling
 container_manager: containerd
-containerd_version: "1.7.8"
+containerd_version: "2.0.6"
 
 # Enable registry mirrors for faster downloads (optional)
 # registry_host: "registry.example.com:5000"
@@ -451,6 +451,44 @@ etcd_election_timeout: "2500"
         etcd_yml_path = group_vars_dir / "etcd.yml"
         etcd_yml_path.write_text(etcd_config)
         print(f"   Created etcd optimization config: {etcd_yml_path}")
+        
+        # Create Cilium CNI configuration
+        cilium_config = """---
+# Cilium CNI configuration
+kube_network_plugin: cilium
+cilium_version: "1.17.7"
+
+# Enable Cilium features
+cilium_enable_ipv4: true
+cilium_enable_ipv6: false
+
+# Cilium networking mode
+cilium_tunnel_mode: vxlan
+cilium_enable_l7_proxy: true
+
+# Enable Hubble for observability
+cilium_enable_hubble: true
+cilium_hubble_relay_enabled: true
+cilium_hubble_ui_enabled: true
+
+# BGP configuration (optional, can be enabled later)
+cilium_enable_bgp_control_plane: false
+
+# Security policies
+cilium_enable_policy: "default"
+cilium_policy_audit_mode: false
+
+# Performance optimizations
+cilium_enable_bandwidth_manager: true
+cilium_enable_local_redirect_policy: true
+
+# Monitoring
+cilium_enable_prometheus: true
+"""
+        
+        cilium_yml_path = group_vars_dir / "cilium.yml"
+        cilium_yml_path.write_text(cilium_config)
+        print(f"   Created Cilium CNI config: {cilium_yml_path}")
         
     def configure_kubespray(self):
         """Configure Kubespray for deployment"""
