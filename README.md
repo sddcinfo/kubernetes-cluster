@@ -133,7 +133,7 @@ cd terraform && terraform apply               # Deploy VMs with OpenTofu
 python3 scripts/deploy-kubespray-cluster.py   # Deploy Kubernetes with Kubespray
 ```
 
-### Enhanced Fresh Cluster Deployment 🚀
+### Enhanced Fresh Cluster Deployment
 
 **LATEST** - The deployment script now provides **component-specific deployment control** for maximum flexibility:
 
@@ -176,7 +176,7 @@ python3 scripts/deploy-fresh-cluster.py --force-recreate      # Force complete r
 - **Latest Updates** - Kubespray updated to v2.26.0 with enhanced component stability
 ```
 
-### 🚀 **100% Hands-Off Automation**
+### **100% Hands-Off Automation**
 
 The cluster-manager now provides **completely automated template creation** with zero manual intervention:
 
@@ -185,13 +185,13 @@ The cluster-manager now provides **completely automated template creation** with
 python3 scripts/cluster-manager.py --setup-and-create
 
 # Features:
-# ✅ Automatic prerequisite validation
-# ✅ Terraform user setup with proper permissions  
-# ✅ Cloud image preparation with EFI boot support
-# ✅ Base template creation (ubuntu-base-template, ID 9000)
-# ✅ Kubernetes template with K8s v1.33.4 (ubuntu-k8s-template, ID 9001)
-# ✅ Robust error handling and retry mechanisms
-# ✅ Graceful VM management and template conversion
+# - Automatic prerequisite validation
+# - Terraform user setup with proper permissions  
+# - Cloud image preparation with EFI boot support
+# - Base template creation (ubuntu-base-template, ID 9000)
+# - Kubernetes template with K8s v1.33.4 (ubuntu-k8s-template, ID 9001)
+# - Robust error handling and retry mechanisms
+# - Graceful VM management and template conversion
 ```
 
 ### Implementation Status

@@ -100,11 +100,11 @@ class ClusterDeployer:
                     print(f"   {result.stdout.strip()}")
                 return result
         except subprocess.TimeoutExpired:
-            print(f"⏱️ Command timed out after {timeout} seconds")
+            print(f"Command timed out after {timeout} seconds")
             return None
         except subprocess.CalledProcessError as e:
             if check:
-                print(f"❌ Error: {e}")
+                print(f"Error: {e}")
                 if e.stderr:
                     print(f"   Stderr: {e.stderr}")
                 sys.exit(1)
@@ -112,11 +112,11 @@ class ClusterDeployer:
             
     def manual_vm_cleanup(self):
         """Manually clean up any existing VMs on all Proxmox nodes"""
-        print("\n🧹 Phase -1: Manual VM Cleanup")
+        print("\nPhase -1: Manual VM Cleanup")
         print("=" * 50)
         
         for node in self.proxmox_nodes:
-            print(f"\n🔍 Cleaning up VMs on {node}...")
+            print(f"\nCleaning up VMs on {node}...")
             
             for vm_id in self.vm_ids:
                 # Check if VM exists
@@ -163,15 +163,15 @@ class ClusterDeployer:
                 else:
                     print(f"   Could not check VM {vm_id} on {node} (node may be unreachable)")
         
-        print("\n✅ Manual VM cleanup completed")
+        print("\nManual VM cleanup completed")
         
         # Wait for cleanup to settle
-        print("⏳ Waiting 10 seconds for cleanup to settle...")
+        print("Waiting 10 seconds for cleanup to settle...")
         time.sleep(10)
         
     def reset_terraform(self):
         """Reset Terraform state completely"""
-        print("\n📦 Phase 0: Resetting Terraform State")
+        print("\nPhase 0: Resetting Terraform State")
         print("=" * 50)
         
         # Destroy any existing resources
@@ -188,11 +188,11 @@ class ClusterDeployer:
             f.unlink()
             print(f"   Removed {f.name}")
             
-        print("✅ Terraform state reset completed")
+        print("Terraform state reset completed")
         
     def verify_terraform_output(self):
         """Verify that Terraform created all expected VMs"""
-        print("🔍 Verifying Terraform output...")
+        print("Verifying Terraform output...")
         
         result = self.run_command(
             ["terraform", "output", "-json"],
@@ -218,19 +218,19 @@ class ClusterDeployer:
             print(f"   Control Plane: {control_count}, Workers: {worker_count}, HAProxy: {haproxy_count}")
             
             if total != self.vm_count:
-                print(f"❌ Expected {self.vm_count} VMs but found {total}")
+                print(f"Expected {self.vm_count} VMs but found {total}")
                 return False
                 
-            print(f"✅ All {self.vm_count} VMs found in Terraform output")
+            print(f"All {self.vm_count} VMs found in Terraform output")
             return True
             
         except (json.JSONDecodeError, KeyError) as e:
-            print(f"❌ Failed to parse Terraform output: {e}")
+            print(f"Failed to parse Terraform output: {e}")
             return False
             
     def test_vm_connectivity(self):
         """Test SSH connectivity to all VMs"""
-        print("🔗 Testing SSH connectivity to all VMs...")
+        print("Testing SSH connectivity to all VMs...")
         
         # Get VM IPs from Terraform
         result = self.run_command(
@@ -270,31 +270,31 @@ class ClusterDeployer:
                 )
                 
                 if result and result.returncode == 0 and "OK" in result.stdout:
-                    print(f"   ✅ {vm_name} ({ip}) is reachable")
+                    print(f"   {vm_name} ({ip}) is reachable")
                 else:
-                    print(f"   ❌ {vm_name} ({ip}) is NOT reachable")
+                    print(f"   {vm_name} ({ip}) is NOT reachable")
                     failed_vms.append((vm_name, ip))
                     
             if failed_vms:
-                print(f"\n❌ {len(failed_vms)} VMs are not reachable:")
+                print(f"\n{len(failed_vms)} VMs are not reachable:")
                 for vm_name, ip in failed_vms:
                     print(f"   - {vm_name} ({ip})")
                 return False
                 
-            print(f"✅ All {len(ips)} VMs are reachable via SSH")
+            print(f"All {len(ips)} VMs are reachable via SSH")
             return True
             
         except (json.JSONDecodeError, KeyError) as e:
-            print(f"❌ Failed to get VM information: {e}")
+            print(f"Failed to get VM information: {e}")
             return False
             
     def deploy_infrastructure(self):
         """Deploy infrastructure with Terraform, retrying if needed"""
-        print("\n🏗️ Phase 1: Infrastructure Deployment")
+        print("\nPhase 1: Infrastructure Deployment")
         print("=" * 50)
         
         for attempt in range(1, self.max_retries + 1):
-            print(f"\n📝 Deployment attempt {attempt}/{self.max_retries}")
+            print(f"\nDeployment attempt {attempt}/{self.max_retries}")
             
             # Run Terraform apply with serial execution (parallelism=1)
             result = self.run_command(
@@ -305,48 +305,48 @@ class ClusterDeployer:
             )
             
             if result.returncode != 0:
-                print(f"⚠️ Terraform apply failed on attempt {attempt}")
+                print(f"Terraform apply failed on attempt {attempt}")
                 if attempt < self.max_retries:
                     print("   Retrying...")
                     time.sleep(10)
                     continue
                 else:
-                    print("❌ Maximum retries reached, aborting")
+                    print("Maximum retries reached, aborting")
                     sys.exit(1)
                     
             # Verify all VMs were created
             if not self.verify_terraform_output():
-                print(f"⚠️ Not all VMs created on attempt {attempt}")
+                print(f"Not all VMs created on attempt {attempt}")
                 if attempt < self.max_retries:
                     print("   Running Terraform again to create missing VMs...")
                     continue
                 else:
-                    print("❌ Failed to create all VMs after maximum retries")
+                    print("Failed to create all VMs after maximum retries")
                     sys.exit(1)
                     
             # Wait for VMs to boot
-            print("⏳ Waiting 30 seconds for VMs to boot...")
+            print("Waiting 30 seconds for VMs to boot...")
             time.sleep(30)
             
             # Test connectivity
             if self.test_vm_connectivity():
-                print("✅ Infrastructure deployment completed successfully!")
+                print("Infrastructure deployment completed successfully!")
                 return
             else:
-                print(f"⚠️ Some VMs not reachable on attempt {attempt}")
+                print(f"Some VMs not reachable on attempt {attempt}")
                 if attempt < self.max_retries:
                     print("   Waiting 30 more seconds and retrying...")
                     time.sleep(30)
                     # Try connectivity test again
                     if self.test_vm_connectivity():
-                        print("✅ All VMs now reachable!")
+                        print("All VMs now reachable!")
                         return
                     print("   Still having issues, will recreate infrastructure...")
                 else:
-                    print("❌ VMs not reachable after maximum retries")
+                    print("VMs not reachable after maximum retries")
                     sys.exit(1)
                     
-        print("❌ Infrastructure deployment failed")
+        print("Infrastructure deployment failed")
         sys.exit(1)
         
     def setup_kubespray(self):
@@ -380,11 +380,11 @@ class ClusterDeployer:
             "Installing Kubespray requirements"
         )
         
-        print("✅ Kubespray setup completed")
+        print("Kubespray setup completed")
         
     def apply_download_optimization(self):
         """Apply download optimization configuration to Kubespray"""
-        print("🚀 Applying download optimization configuration...")
+        print("Applying download optimization configuration...")
         
         # Create inventory group_vars/all directory
         group_vars_dir = self.kubespray_dir / "inventory" / "proxmox-cluster" / "group_vars" / "all"
@@ -436,7 +436,7 @@ download_concurrent: 3
         
         download_yml_path = group_vars_dir / "download.yml"
         download_yml_path.write_text(download_config)
-        print(f"   ✅ Created download optimization config: {download_yml_path}")
+        print(f"   Created download optimization config: {download_yml_path}")
         
         # Also create etcd.yml for etcd optimization
         etcd_config = """---
@@ -450,7 +450,7 @@ etcd_election_timeout: "2500"
         
         etcd_yml_path = group_vars_dir / "etcd.yml"
         etcd_yml_path.write_text(etcd_config)
-        print(f"   ✅ Created etcd optimization config: {etcd_yml_path}")
+        print(f"   Created etcd optimization config: {etcd_yml_path}")
         
     def configure_kubespray(self):
         """Configure Kubespray for deployment"""
@@ -473,7 +473,7 @@ etcd_election_timeout: "2500"
             
             # Note: We don't copy the entire config dir, just merge specific files
             # This prevents overwriting the generated inventory
-            print("📋 Applying custom configuration...")
+            print("Applying custom configuration...")
             
         # Apply patches
         patch_file = self.project_dir / "patches" / "kubespray-ansible-cfg.patch"
@@ -485,11 +485,11 @@ etcd_election_timeout: "2500"
                 check=False
             )
             
-        print("✅ Kubespray configuration completed")
+        print("Kubespray configuration completed")
         
     def test_ansible_connectivity(self):
         """Test Ansible connectivity to all nodes"""
-        print("\n🔌 Phase 4: Connectivity Test")
+        print("\nPhase 4: Connectivity Test")
         print("=" * 50)
         
         ansible_path = self.venv_dir / "bin" / "ansible"
@@ -504,24 +504,24 @@ etcd_election_timeout: "2500"
         )
         
         if result.returncode != 0:
-            print("❌ Ansible connectivity test failed")
+            print("Ansible connectivity test failed")
             print("   Please check SSH keys and network connectivity")
             sys.exit(1)
             
-        print("✅ All nodes are reachable via Ansible")
+        print("All nodes are reachable via Ansible")
         
     def deploy_kubernetes(self):
         """Deploy Kubernetes cluster with Kubespray"""
-        print("\n☸️ Phase 5: Kubernetes Deployment")
+        print("\nPhase 5: Kubernetes Deployment")
         print("=" * 50)
-        print("⏳ This will take 15-30 minutes...")
+        print("This will take 15-30 minutes...")
         
         ansible_playbook_path = self.venv_dir / "bin" / "ansible-playbook"
         inventory_file = self.kubespray_dir / "inventory" / "proxmox-cluster" / "inventory.ini"
         
         # Create log file with timestamp
         log_file = self.project_dir / f"kubespray-deployment-{int(time.time())}.log"
-        print(f"📋 Deployment log: {log_file}")
+        print(f"Deployment log: {log_file}")
         
         start_time = time.time()
         
@@ -538,16 +538,16 @@ etcd_election_timeout: "2500"
         duration = int(time.time() - start_time)
         
         if result.returncode != 0:
-            print(f"❌ Kubernetes deployment failed after {duration // 60}m {duration % 60}s")
-            print(f"📋 Check deployment log for details: {log_file}")
+            print(f"Kubernetes deployment failed after {duration // 60}m {duration % 60}s")
+            print(f"Check deployment log for details: {log_file}")
             sys.exit(1)
             
-        print(f"✅ Kubernetes deployment completed in {duration // 60}m {duration % 60}s")
-        print(f"📋 Full deployment log: {log_file}")
+        print(f"Kubernetes deployment completed in {duration // 60}m {duration % 60}s")
+        print(f"Full deployment log: {log_file}")
         
     def setup_kubeconfig(self):
         """Setup kubeconfig for cluster access"""
-        print("\n🔑 Phase 6: Kubeconfig Setup")
+        print("\nPhase 6: Kubeconfig Setup")
         print("=" * 50)
         
         ansible_path = self.venv_dir / "bin" / "ansible"
@@ -570,19 +570,19 @@ etcd_election_timeout: "2500"
         shutil.copy("/tmp/kubeconfig", kubeconfig_path)
         kubeconfig_path.chmod(0o600)
         
-        print(f"✅ Kubeconfig installed at {kubeconfig_path}")
-        print("💡 Set environment variable:")
+        print(f"Kubeconfig installed at {kubeconfig_path}")
+        print("Set environment variable:")
         print(f"   export KUBECONFIG={kubeconfig_path}")
         
     def verify_cluster(self):
         """Verify Kubernetes cluster is working"""
-        print("\n✔️ Phase 7: Cluster Verification")
+        print("\nPhase 7: Cluster Verification")
         print("=" * 50)
         
         kubeconfig_path = Path.home() / ".kube" / "config-k8s-proxmox"
         
         if not kubeconfig_path.exists():
-            print("❌ Kubeconfig not found")
+            print("Kubeconfig not found")
             return False
             
         # Check nodes
@@ -593,7 +593,7 @@ etcd_election_timeout: "2500"
         )
         
         if result.returncode != 0:
-            print("❌ Failed to get cluster nodes")
+            print("Failed to get cluster nodes")
             return False
             
         # Check system pods
@@ -610,7 +610,7 @@ etcd_election_timeout: "2500"
             check=False
         )
         
-        print("✅ Cluster verification completed!")
+        print("Cluster verification completed!")
         return True
         
     def get_vm_placement_from_terraform(self):
@@ -692,11 +692,11 @@ etcd_election_timeout: "2500"
         
     def verify_existing_vms(self):
         """Verify existing VMs without destructive actions"""
-        print("\n🔍 VM Verification Mode")
+        print("\nVM Verification Mode")
         print("=" * 50)
         
         # First, check if VMs exist on Proxmox hypervisors
-        print("🏗️ Checking VM status on Proxmox hypervisors...")
+        print("Checking VM status on Proxmox hypervisors...")
         
         # Get VM placement from Terraform configuration
         vm_placement = self.get_vm_placement_from_terraform()
@@ -706,7 +706,7 @@ etcd_election_timeout: "2500"
         running_vms = []
         
         for vm_id, expected_node in vm_placement.items():
-            print(f"🔍 Checking VM {vm_id} on {expected_node}...")
+            print(f"Checking VM {vm_id} on {expected_node}...")
             
             result = self.run_command(
                 f"ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 root@{expected_node} 'qm status {vm_id} 2>/dev/null'",
@@ -717,39 +717,39 @@ etcd_election_timeout: "2500"
             
             if result and result.returncode == 0:
                 if "status: running" in result.stdout:
-                    print(f"   ✅ VM {vm_id} is running on {expected_node}")
+                    print(f"   VM {vm_id} is running on {expected_node}")
                     running_vms.append(vm_id)
                 elif "status: stopped" in result.stdout:
-                    print(f"   ⚠️ VM {vm_id} exists but is stopped on {expected_node}")
+                    print(f"   VM {vm_id} exists but is stopped on {expected_node}")
                     stopped_vms.append(vm_id)
                 else:
-                    print(f"   ❓ VM {vm_id} has unknown status: {result.stdout.strip()}")
+                    print(f"   VM {vm_id} has unknown status: {result.stdout.strip()}")
             else:
-                print(f"   ❌ VM {vm_id} not found on {expected_node}")
+                print(f"   VM {vm_id} not found on {expected_node}")
                 missing_vms.append(vm_id)
         
         # Report VM status summary
-        print(f"\n📊 VM Status Summary:")
-        print(f"   ✅ Running: {len(running_vms)}")
-        print(f"   ⚠️ Stopped: {len(stopped_vms)}")
-        print(f"   ❌ Missing: {len(missing_vms)}")
+        print(f"\nVM Status Summary:")
+        print(f"   Running: {len(running_vms)}")
+        print(f"   Stopped: {len(stopped_vms)}")
+        print(f"   Missing: {len(missing_vms)}")
         
         if missing_vms:
-            print(f"\n❌ Missing VMs: {missing_vms}")
+            print(f"\nMissing VMs: {missing_vms}")
             print("   Run full deployment to create missing VMs")
             sys.exit(1)
             
         if stopped_vms:
-            print(f"\n⚠️ Stopped VMs: {stopped_vms}")
+            print(f"\nStopped VMs: {stopped_vms}")
             print("   These VMs exist but need to be started")
             
         if not running_vms:
-            print("\n❌ No running VMs found")
+            print("\nNo running VMs found")
             sys.exit(1)
             
         # Test SSH connectivity to running VMs only
         if running_vms:
-            print(f"\n🔗 Testing SSH connectivity to {len(running_vms)} running VMs...")
+            print(f"\nTesting SSH connectivity to {len(running_vms)} running VMs...")
             
             # Map VM IDs to IPs and names
             vm_info = {
@@ -773,24 +773,24 @@ etcd_election_timeout: "2500"
                 )
                 
                 if result and result.returncode == 0 and "OK" in result.stdout:
-                    print(f"   ✅ {vm_name} ({ip}) is reachable via SSH")
+                    print(f"   {vm_name} ({ip}) is reachable via SSH")
                 else:
-                    print(f"   ❌ {vm_name} ({ip}) is NOT reachable via SSH")
+                    print(f"   {vm_name} ({ip}) is NOT reachable via SSH")
                     ssh_failed.append((vm_name, ip))
             
             if ssh_failed:
-                print(f"\n❌ {len(ssh_failed)} VMs failed SSH connectivity test:")
+                print(f"\n{len(ssh_failed)} VMs failed SSH connectivity test:")
                 for vm_name, ip in ssh_failed:
                     print(f"   - {vm_name} ({ip})")
                 sys.exit(1)
             else:
-                print(f"✅ All {len(running_vms)} running VMs are accessible via SSH")
+                print(f"All {len(running_vms)} running VMs are accessible via SSH")
             
             # Test Ansible connectivity if kubespray exists
             if self.kubespray_dir.exists():
                 inventory_file = self.kubespray_dir / "inventory" / "proxmox-cluster" / "inventory.ini"
                 if inventory_file.exists():
-                    print("\n🔌 Testing Ansible connectivity...")
+                    print("\nTesting Ansible connectivity...")
                     ansible_path = self.venv_dir / "bin" / "ansible"
                     
                     result = self.run_command(
@@ -801,17 +801,17 @@ etcd_election_timeout: "2500"
                     )
                     
                     if result.returncode == 0:
-                        print("✅ All nodes are reachable via Ansible")
+                        print("All nodes are reachable via Ansible")
                     else:
-                        print("❌ Ansible connectivity test failed")
+                        print("Ansible connectivity test failed")
                 else:
-                    print("⚠️ Kubespray inventory not found - run full deployment to generate")
+                    print("Kubespray inventory not found - run full deployment to generate")
             else:
-                print("⚠️ Kubespray not found - run full deployment to set up")
+                print("Kubespray not found - run full deployment to set up")
                 
-            print("\n✅ VM verification completed successfully!")
+            print("\nVM verification completed successfully!")
         else:
-            print("❌ No running VMs to test")
+            print("No running VMs to test")
             sys.exit(1)
     
     def run(self):
@@ -832,7 +832,7 @@ etcd_election_timeout: "2500"
             
     def run_infrastructure_only(self):
         """Deploy only infrastructure (VMs) with Terraform"""
-        print("🏗️ Infrastructure-Only Deployment")
+        print("Infrastructure-Only Deployment")
         print("=" * 50)
         print(f"Project Directory: {self.project_dir}")
         print(f"Terraform Directory: {self.terraform_dir}")
@@ -851,7 +851,7 @@ etcd_election_timeout: "2500"
         self.deploy_infrastructure()
         
         print("\n" + "=" * 50)
-        print("🏗️ Infrastructure deployment completed!")
+        print("Infrastructure deployment completed!")
         print("=" * 50)
         print("\nNext steps:")
         print("1. Run with --kubespray-only to setup Kubespray")
@@ -865,7 +865,7 @@ etcd_election_timeout: "2500"
         
         # Check if infrastructure exists
         if not (self.terraform_dir / "terraform.tfstate").exists():
-            print("⚠️ No Terraform state found. Deploy infrastructure first with --infrastructure-only")
+            print("No Terraform state found. Deploy infrastructure first with --infrastructure-only")
             
         # Phase 2: Setup Kubespray
         self.setup_kubespray()
@@ -882,21 +882,21 @@ etcd_election_timeout: "2500"
         
     def run_kubernetes_only(self):
         """Deploy Kubernetes cluster only (assumes infrastructure exists)"""
-        print("☸️ Kubernetes-Only Deployment")
+        print("Kubernetes-Only Deployment")
         print("=" * 50)
         
         # Check prerequisites
         if not (self.terraform_dir / "terraform.tfstate").exists():
-            print("❌ No Terraform state found. Deploy infrastructure first with --infrastructure-only")
+            print("No Terraform state found. Deploy infrastructure first with --infrastructure-only")
             sys.exit(1)
             
         if not self.kubespray_dir.exists():
-            print("❌ Kubespray not found. Setup Kubespray first with --kubespray-only")
+            print("Kubespray not found. Setup Kubespray first with --kubespray-only")
             sys.exit(1)
             
         inventory_file = self.kubespray_dir / "inventory" / "proxmox-cluster" / "inventory.ini"
         if not inventory_file.exists():
-            print("❌ Kubespray inventory not found. Setup Kubespray first with --kubespray-only")
+            print("Kubespray inventory not found. Setup Kubespray first with --kubespray-only")
             sys.exit(1)
         
         # Phase 4: Test connectivity
@@ -912,7 +912,7 @@ etcd_election_timeout: "2500"
         self.verify_cluster()
         
         print("\n" + "=" * 50)
-        print("☸️ Kubernetes deployment completed!")
+        print("Kubernetes deployment completed!")
         print("=" * 50)
         print("\nNext steps:")
         print("1. Set KUBECONFIG: export KUBECONFIG=~/.kube/config-k8s-proxmox")
@@ -921,7 +921,7 @@ etcd_election_timeout: "2500"
         
     def run_full_deployment(self):
         """Run the complete deployment"""
-        print("🚀 Full Kubernetes Cluster Deployment")
+        print("Full Kubernetes Cluster Deployment")
         print("=" * 50)
         print(f"Project Directory: {self.project_dir}")
         print(f"Terraform Directory: {self.terraform_dir}")
@@ -958,7 +958,7 @@ etcd_election_timeout: "2500"
         self.verify_cluster()
         
         print("\n" + "=" * 50)
-        print("🎉 Full Kubernetes cluster deployment completed successfully!")
+        print("Full Kubernetes cluster deployment completed successfully!")
         print("=" * 50)
         print("\nNext steps:")
         print("1. Set KUBECONFIG: export KUBECONFIG=~/.kube/config-k8s-proxmox")
@@ -995,12 +995,12 @@ def main():
     # Validate argument combinations
     component_flags = [args.infrastructure_only, args.kubespray_only, args.kubernetes_only]
     if sum(component_flags) > 1:
-        print("❌ Cannot specify multiple component flags simultaneously")
+        print("Cannot specify multiple component flags simultaneously")
         sys.exit(1)
         
     # Check if running from correct directory
     if not Path("terraform/kubernetes-cluster.tf").exists():
-        print("❌ Must run from kubernetes-cluster root directory")
+        print("Must run from kubernetes-cluster root directory")
         sys.exit(1)
         
     deployer = ClusterDeployer(

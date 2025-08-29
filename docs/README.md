@@ -4,14 +4,14 @@ This directory contains comprehensive documentation for the Enterprise Kubernete
 
 ## Core Documentation
 
-### 📋 [STATUS.md](STATUS.md)
+### [STATUS.md](STATUS.md)
 **Current implementation status and progress tracking**
 - Phase completion details
 - Active development status  
 - Next milestone planning
 - Technical achievements summary
 
-### 🏗️ [IP_ALLOCATION.md](IP_ALLOCATION.md) 
+### [IP_ALLOCATION.md](IP_ALLOCATION.md) 
 **Complete network allocation strategy**
 - Strategic IP address planning
 - Network segmentation design
@@ -28,7 +28,7 @@ This directory contains comprehensive documentation for the Enterprise Kubernete
 
 ## Architecture Documentation
 
-### 🏛️ [../ARCHITECTURE.md](../ARCHITECTURE.md)
+### [../ARCHITECTURE.md](../ARCHITECTURE.md)
 **Technology selection and design decisions**
 - Tool evaluation and selection rationale
 - Implementation approach justification

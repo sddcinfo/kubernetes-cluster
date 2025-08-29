@@ -240,7 +240,7 @@ class ClusterManager:
     
     def validate_prerequisites(self) -> bool:
         """Comprehensive prerequisite validation"""
-        logger.info("🔍 Validating prerequisites...")
+        logger.info("Validating prerequisites...")
         
         validations = [
             ("SSH connectivity to Proxmox", self._check_ssh_connectivity),
@@ -258,18 +258,18 @@ class ClusterManager:
         for description, check_func in validations:
             try:
                 if check_func():
-                    logger.info(f"✅ {description}: OK")
+                    logger.info(f"{description}: OK")
                 else:
-                    logger.error(f"❌ {description}: FAILED")
+                    logger.error(f"{description}: FAILED")
                     all_valid = False
             except Exception as e:
-                logger.error(f"❌ {description}: ERROR - {e}")
+                logger.error(f"{description}: ERROR - {e}")
                 all_valid = False
         
         if all_valid:
-            logger.info("✅ All prerequisites validated successfully")
+            logger.info("All prerequisites validated successfully")
         else:
-            logger.error("❌ Prerequisites validation failed - see errors above")
+            logger.error("Prerequisites validation failed - see errors above")
         
         return all_valid
     
@@ -400,7 +400,7 @@ class ClusterManager:
     
     def setup_foundation(self) -> bool:
         """Run foundation setup phases"""
-        logger.info("🚀 Starting foundation setup")
+        logger.info("Starting foundation setup")
         
         phases = [
             ("Environment Validation", self.validate_environment),
@@ -415,7 +415,7 @@ class ClusterManager:
                 logger.error(f"Foundation setup failed at: {phase_name}")
                 return False
         
-        logger.info("✅ Foundation setup completed successfully")
+        logger.info("Foundation setup completed successfully")
         logger.info("Ready for template creation")
         return True
     
@@ -732,12 +732,12 @@ echo "Cloud image prepared successfully in $TEMPLATE_DIR"
     
     def create_templates(self) -> bool:
         """Create both base and Kubernetes templates"""
-        logger.info("🏗️ Creating VM templates")
+        logger.info("Creating VM templates")
         
         # Validate prerequisites first
         if not self.validate_prerequisites():
-            logger.error("❌ Prerequisites validation failed - cannot proceed with template creation")
-            logger.info("💡 To fix this, run: python3 cluster-manager.py --setup-foundation")
+            logger.error("Prerequisites validation failed - cannot proceed with template creation")
+            logger.info("To fix this, run: python3 cluster-manager.py --setup-foundation")
             return False
         
         # Create base template
@@ -750,7 +750,7 @@ echo "Cloud image prepared successfully in $TEMPLATE_DIR"
             logger.error("Failed to create Kubernetes template")
             return False
         
-        logger.info("🎉 All templates created successfully!")
+        logger.info("All templates created successfully!")
         self.display_templates()
         return True
     
@@ -790,7 +790,7 @@ echo "Cloud image prepared successfully in $TEMPLATE_DIR"
         }
         self.state.save_state()
         
-        logger.info(f"✅ Base template created successfully: {template_name} (ID: {template_id})")
+        logger.info(f"Base template created successfully: {template_name} (ID: {template_id})")
         return True
     
     def create_k8s_template(self) -> bool:
@@ -851,7 +851,7 @@ echo "Cloud image prepared successfully in $TEMPLATE_DIR"
         }
         self.state.save_state()
         
-        logger.info(f"✅ Kubernetes template created successfully: {template_name} (ID: {template_id})")
+        logger.info(f"Kubernetes template created successfully: {template_name} (ID: {template_id})")
         return True
     
     def create_cloud_base_vm(self, vm_id: int, vm_name: str) -> bool:
@@ -929,7 +929,7 @@ echo "VM {vm_id} created successfully"
                 logger.error(f"Failed to create VM on Proxmox: {stderr}")
                 return False
             
-            logger.info(f"✅ Cloud-based VM created: {vm_name} (ID: {vm_id})")
+            logger.info(f"Cloud-based VM created: {vm_name} (ID: {vm_id})")
             return True
             
         except Exception as e:
@@ -969,7 +969,7 @@ echo "VM {vm_id} created successfully"
                                         if addr.get('ip-address-type') == 'ipv4':
                                             ip = addr.get('ip-address')
                                             if ip and ip.startswith('10.10.1.') and ip != '127.0.0.1':
-                                                logger.info(f"✅ VM {vm_id} got IP: {ip}")
+                                                logger.info(f"VM {vm_id} got IP: {ip}")
                                                 return ip
                     except (json.JSONDecodeError, KeyError, TypeError) as e:
                         logger.debug(f"JSON parse error (attempt {attempt + 1}): {e}")
@@ -1050,9 +1050,9 @@ apt-get autoclean
 rm -rf /var/cache/apt/archives/*
 
 # Verify installation
-kubectl version --client >/dev/null 2>&1 && echo "✅ kubectl working"
-kubeadm version >/dev/null 2>&1 && echo "✅ kubeadm working"
-containerd --version >/dev/null 2>&1 && echo "✅ containerd working"
+kubectl version --client >/dev/null 2>&1 && echo "kubectl working"
+kubeadm version >/dev/null 2>&1 && echo "kubeadm working"
+containerd --version >/dev/null 2>&1 && echo "containerd working"
 
 echo "Kubernetes components installed successfully"
 
@@ -1089,7 +1089,7 @@ exit 0
                 verify_cmd = f"{ssh_cmd} 'kubectl version --client && kubeadm version && containerd --version'"
                 verify_result = self.run_local_command(verify_cmd, timeout=60)
                 
-                logger.info("✅ Kubernetes components installed and verified successfully")
+                logger.info("Kubernetes components installed and verified successfully")
                 return True
                 
             except subprocess.CalledProcessError as e:
@@ -1118,7 +1118,7 @@ exit 0
                 ssh_cmd = f"ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -i {self.config.SSH_KEY_PATH} sysadmin@{vm_ip} 'echo SSH_READY'"
                 result = self.run_local_command(ssh_cmd, timeout=10)
                 if 'SSH_READY' in result.stdout:
-                    logger.info(f"✅ SSH ready on {vm_ip}")
+                    logger.info(f"SSH ready on {vm_ip}")
                     return True
             except:
                 pass
@@ -1140,7 +1140,7 @@ exit 0
             for attempt in range(max_wait // 5):
                 returncode, stdout, stderr = self.run_ssh_command(f"qm status {vm_id}", timeout=10)
                 if returncode == 0 and 'stopped' in stdout:
-                    logger.info(f"✅ VM {vm_id} shutdown gracefully")
+                    logger.info(f"VM {vm_id} shutdown gracefully")
                     return True
                 time.sleep(5)
             
@@ -1152,7 +1152,7 @@ exit 0
             for attempt in range(12):  # 60 seconds max
                 returncode, stdout, stderr = self.run_ssh_command(f"qm status {vm_id}", timeout=10)
                 if returncode == 0 and 'stopped' in stdout:
-                    logger.info(f"✅ VM {vm_id} force stopped successfully")
+                    logger.info(f"VM {vm_id} force stopped successfully")
                     return True
                 time.sleep(5)
             
@@ -1238,9 +1238,9 @@ def main():
         if args.validate_prereqs:
             success = manager.validate_prerequisites()
             if success:
-                logger.info("🎉 All prerequisites are satisfied!")
+                logger.info("All prerequisites are satisfied!")
             else:
-                logger.error("❌ Prerequisites validation failed")
+                logger.error("Prerequisites validation failed")
             sys.exit(0 if success else 1)
         
         elif args.status:

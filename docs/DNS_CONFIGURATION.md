@@ -112,13 +112,13 @@ terraform apply
 
 ## Verification Results
 
-✅ **DNS Resolution Working**
+**DNS Resolution Working**
 - Forward DNS: All Kubernetes hostnames resolve correctly
 - Reverse DNS: PTR records working for all IPs
 - Wildcard DNS: *.apps.sddc.info resolves to ingress
 - Coexistence: No conflicts with existing infrastructure DNS
 
-✅ **Configuration Validation**
+**Configuration Validation**
 - dnsmasq syntax check: PASSED
 - Service restart: SUCCESSFUL  
 - No conflicts with DHCP range

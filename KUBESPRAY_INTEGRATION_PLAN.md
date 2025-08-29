@@ -23,11 +23,11 @@ Integration of Kubespray v2.28.1+ with the existing Proxmox-based kubernetes-clu
 ## Version Compatibility Analysis
 
 ### Kubespray v2.28.1 Support
-- ✅ **Kubernetes 1.33.4**: Fully supported (found in kubelet_checksums)
-- ⚠️ **Cilium 1.18.1**: Default is 1.17.7, needs override to 1.18.1
-- ✅ **Containerd**: Native support with systemd cgroup
-- ✅ **Ubuntu 24.04**: Supported distribution
-- ✅ **Proxmox**: Infrastructure agnostic (works with any VM provider)
+- **Kubernetes 1.33.4**: Fully supported (found in kubelet_checksums)
+- **Cilium 1.18.1**: Default is 1.17.7, needs override to 1.18.1
+- **Containerd**: Native support with systemd cgroup
+- **Ubuntu 24.04**: Supported distribution
+- **Proxmox**: Infrastructure agnostic (works with any VM provider)
 
 ### Required Overrides
 ```yaml
@@ -183,7 +183,7 @@ def setup_kubespray():
             str(kubespray_dir)
         ], check=True)
     
-    print("🔧 Setting up Kubespray inventory...")
+    print("Setting up Kubespray inventory...")
     inventory_dir = kubespray_dir / "inventory" / "proxmox-cluster"
     inventory_dir.mkdir(parents=True, exist_ok=True)
     
@@ -197,7 +197,7 @@ def setup_kubespray():
     # Generate inventory from OpenTofu output
     generate_kubespray_inventory()
     
-    print("✅ Kubespray setup complete")
+    print("Kubespray setup complete")
 ```
 
 #### cluster-deploy.py modifications:
@@ -222,7 +222,7 @@ def deploy_kubernetes_cluster():
     # Copy kubeconfig
     copy_kubeconfig_for_access()
     
-    print("✅ Kubernetes cluster deployed successfully")
+    print("Kubernetes cluster deployed successfully")
 ```
 
 ## Migration Benefits
@@ -251,11 +251,11 @@ def deploy_kubernetes_cluster():
 
 ## Success Criteria
 
-1. ✅ **Deployment Time**: < 20 minutes for full cluster
-2. ✅ **Feature Parity**: All current features working
-3. ✅ **Version Target**: Kubernetes 1.33.4 + Cilium 1.18.1
-4. ✅ **Idempotency**: Safe to run multiple times
-5. ✅ **Documentation**: Updated and comprehensive
+1. **Deployment Time**: < 20 minutes for full cluster
+2. **Feature Parity**: All current features working
+3. **Version Target**: Kubernetes 1.33.4 + Cilium 1.18.1
+4. **Idempotency**: Safe to run multiple times
+5. **Documentation**: Updated and comprehensive
 
 ## Next Steps
 

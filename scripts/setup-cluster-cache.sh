@@ -89,9 +89,9 @@ print_status "Verifying cache setup..."
 
 # Verify setup on all nodes
 ansible -i inventory/proxmox-cluster/inventory.ini all -m shell -a "ls -la /tmp/releases/ && ls -la /var/cache/kubespray/" | grep -E "(SUCCESS|CHANGED)" && {
-    print_status "✅ Cache setup completed successfully on all nodes!"
+    print_status "Cache setup completed successfully on all nodes!"
 } || {
-    print_warning "⚠️  Some nodes may have setup issues. Check manually if needed."
+    print_warning "Some nodes may have setup issues. Check manually if needed."
 }
 
 echo ""

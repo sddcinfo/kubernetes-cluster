@@ -11,7 +11,7 @@ After extensive research and evaluation, the recommended approach for automating
 
 ## Tool Selection Rationale
 
-### VM Template Building: Cloud Images + virt-customize ✅
+### VM Template Building: Cloud Images + virt-customize
 
 **Why Cloud Images with virt-customize:**
 - Official Ubuntu cloud images as base (maintained and secure)
@@ -26,7 +26,7 @@ After extensive research and evaluation, the recommended approach for automating
 - Azure VM Image Builder: Azure-specific
 - CloudCaptain: AWS/JVM specific
 
-### Infrastructure as Code: OpenTofu ✅
+### Infrastructure as Code: OpenTofu
 
 **Why OpenTofu:**
 - Open-source fork of Terraform (Apache 2.0 license)
@@ -41,7 +41,7 @@ After extensive research and evaluation, the recommended approach for automating
 - Crossplane: Kubernetes-native but requires existing K8s cluster (chicken-egg problem)
 - Ansible alone: Not declarative for infrastructure state
 
-### Kubernetes Deployment: Kubespray ✅
+### Kubernetes Deployment: Kubespray
 
 **Why Kubespray over Custom Ansible:**
 - **Production-Ready**: Battle-tested across thousands of deployments
@@ -57,7 +57,7 @@ After extensive research and evaluation, the recommended approach for automating
 - RKE/RKE2: Rancher-specific, less flexibility
 - k3s: Too lightweight for enterprise requirements
 
-### Container Networking: Cilium ✅
+### Container Networking: Cilium
 
 **Why Cilium over Calico:**
 - **eBPF Performance**: Runs in kernel space, bypassing iptables for better performance
@@ -72,7 +72,7 @@ After extensive research and evaluation, the recommended approach for automating
 - **Calico Limitations**: iptables-based (higher overhead), limited Layer 7 capabilities
 - **Enterprise Context**: Cilium's advanced features justify the learning curve for production deployments
 
-### Orchestration: Python with Async/Await ✅
+### Orchestration: Python with Async/Await
 
 **Why Python:**
 - Excellent Proxmox API libraries (proxmoxer)

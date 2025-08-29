@@ -23,10 +23,10 @@ def run_command(command, description, cwd=None, check=True):
             shell=isinstance(command, str)
         )
         if result.stdout:
-            print(f"✅ {result.stdout.strip()}")
+            print(f"{result.stdout.strip()}")
         return result
     except subprocess.CalledProcessError as e:
-        print(f"❌ Error: {e}")
+        print(f"Error: {e}")
         if e.stderr:
             print(f"Stderr: {e.stderr}")
         if check:
@@ -36,31 +36,31 @@ def run_command(command, description, cwd=None, check=True):
 
 def check_prerequisites():
     """Check if all prerequisites are met"""
-    print("🔍 Checking prerequisites...")
+    print("Checking prerequisites...")
     
     # Check if we're in the right directory
     if not Path("terraform").exists() or not Path("kubespray").exists():
-        print("❌ Must run from kubernetes-cluster root directory")
+        print("Must run from kubernetes-cluster root directory")
         sys.exit(1)
     
     # Check if terraform state exists
     terraform_state = Path("terraform/terraform.tfstate")
     if not terraform_state.exists():
-        print("❌ No Terraform state found. Deploy infrastructure first.")
+        print("No Terraform state found. Deploy infrastructure first.")
         sys.exit(1)
     
     # Check if SSH key exists
     ssh_key = Path("/home/sysadmin/.ssh/sysadmin_automation_key")
     if not ssh_key.exists():
-        print("❌ SSH key not found: /home/sysadmin/.ssh/sysadmin_automation_key")
+        print("SSH key not found: /home/sysadmin/.ssh/sysadmin_automation_key")
         sys.exit(1)
     
-    print("✅ Prerequisites check passed")
+    print("Prerequisites check passed")
 
 
 def generate_inventory():
     """Generate Kubespray inventory from Terraform output"""
-    print("📋 Generating Kubespray inventory...")
+    print("Generating Kubespray inventory...")
     result = run_command(
         ["python3", "scripts/generate-kubespray-inventory.py"],
         "Generating inventory from Terraform state"
@@ -70,12 +70,12 @@ def generate_inventory():
 
 def apply_kubespray_patches():
     """Apply custom patches to Kubespray configuration"""
-    print("🔧 Applying Kubespray patches...")
+    print("Applying Kubespray patches...")
     kubespray_dir = Path("kubespray")
     patches_dir = Path("patches")
     
     if not patches_dir.exists():
-        print("📄 No patches directory found, skipping patch application")
+        print("No patches directory found, skipping patch application")
         return True
     
     # Apply ansible.cfg optimizations
@@ -86,21 +86,21 @@ def apply_kubespray_patches():
         ], "Applying ansible.cfg optimizations", cwd=kubespray_dir, check=False)
         
         if result.returncode != 0:
-            print("⚠️  Ansible.cfg patch may already be applied")
+            print(" Ansible.cfg patch may already be applied")
     
     return True
 
 
 def install_kubespray_requirements():
     """Install Kubespray Python requirements"""
-    print("📦 Installing Kubespray requirements...")
+    print("Installing Kubespray requirements...")
     kubespray_dir = Path("kubespray")
     venv_dir = kubespray_dir / "venv"
     
     # Check if requirements file exists
     requirements_file = kubespray_dir / "requirements.txt"
     if not requirements_file.exists():
-        print("❌ Kubespray requirements.txt not found")
+        print("Kubespray requirements.txt not found")
         return False
     
     # Create virtual environment if it doesn't exist
@@ -117,7 +117,7 @@ def install_kubespray_requirements():
     # Check if Ansible is already installed
     ansible_path = venv_dir / "bin" / "ansible"
     if ansible_path.exists():
-        print("✅ Kubespray dependencies already installed")
+        print("Kubespray dependencies already installed")
         return True
     
     run_command(
@@ -130,7 +130,7 @@ def install_kubespray_requirements():
 
 def test_connectivity():
     """Test SSH connectivity to all nodes"""
-    print("🔗 Testing SSH connectivity to cluster nodes...")
+    print("Testing SSH connectivity to cluster nodes...")
     kubespray_dir = Path("kubespray")
     venv_dir = kubespray_dir / "venv"
     ansible_path = venv_dir / "bin" / "ansible"
@@ -144,16 +144,16 @@ def test_connectivity():
     )
     
     if result.returncode != 0:
-        print("❌ Connectivity test failed. Check SSH connectivity to nodes.")
+        print("Connectivity test failed. Check SSH connectivity to nodes.")
         return False
     
-    print("✅ All nodes are reachable")
+    print("All nodes are reachable")
     return True
 
 
 def deploy_cluster():
     """Deploy Kubernetes cluster using Kubespray"""
-    print("🚀 Deploying Kubernetes cluster with Kubespray...")
+    print("Deploying Kubernetes cluster with Kubespray...")
     kubespray_dir = Path("kubespray")
     venv_dir = kubespray_dir / "venv"
     ansible_playbook_path = venv_dir / "bin" / "ansible-playbook"
@@ -174,14 +174,14 @@ def deploy_cluster():
     
     end_time = time.time()
     deploy_duration = int(end_time - start_time)
-    print(f"⏱️ Deployment completed in {deploy_duration // 60}m {deploy_duration % 60}s")
+    print(f"Deployment completed in {deploy_duration // 60}m {deploy_duration % 60}s")
     
     return result.returncode == 0
 
 
 def setup_kubeconfig():
     """Setup kubeconfig for cluster access"""
-    print("🔑 Setting up kubeconfig...")
+    print("Setting up kubeconfig...")
     
     # Source kubeconfig from first control plane node
     kubespray_dir = Path("kubespray")
@@ -212,8 +212,8 @@ def setup_kubeconfig():
             "chmod", "600", str(kubeconfig_dir / "config-k8s-proxmox")
         ], "Setting kubeconfig permissions")
         
-        print("✅ Kubeconfig installed at ~/.kube/config-k8s-proxmox")
-        print("💡 Set KUBECONFIG environment variable:")
+        print("Kubeconfig installed at ~/.kube/config-k8s-proxmox")
+        print("Set KUBECONFIG environment variable:")
         print("   export KUBECONFIG=~/.kube/config-k8s-proxmox")
         
         return True
@@ -223,11 +223,11 @@ def setup_kubeconfig():
 
 def verify_cluster():
     """Verify cluster deployment"""
-    print("✅ Verifying cluster deployment...")
+    print("Verifying cluster deployment...")
     
     kubeconfig_path = Path.home() / ".kube" / "config-k8s-proxmox"
     if not kubeconfig_path.exists():
-        print("❌ Kubeconfig not found")
+        print("Kubeconfig not found")
         return False
     
     env = {"KUBECONFIG": str(kubeconfig_path)}
@@ -240,7 +240,7 @@ def verify_cluster():
     )
     
     if result.returncode != 0:
-        print("❌ Failed to get cluster nodes")
+        print("Failed to get cluster nodes")
         return False
     
     # Check system pods
@@ -257,13 +257,13 @@ def verify_cluster():
         check=False
     )
     
-    print("🎉 Cluster verification completed!")
+    print("Cluster verification completed!")
     return True
 
 
 def main():
     """Main deployment workflow"""
-    print("🚀 Starting Kubespray-based Kubernetes deployment for Proxmox")
+    print("Starting Kubespray-based Kubernetes deployment for Proxmox")
     print("=" * 60)
     
     # Phase 1: Prerequisites
@@ -271,40 +271,40 @@ def main():
     
     # Phase 2: Generate inventory
     if not generate_inventory():
-        print("❌ Failed to generate inventory")
+        print("Failed to generate inventory")
         sys.exit(1)
     
     # Phase 3: Apply patches
     if not apply_kubespray_patches():
-        print("❌ Failed to apply patches")
+        print("Failed to apply patches")
         sys.exit(1)
     
     # Phase 4: Install requirements
     if not install_kubespray_requirements():
-        print("❌ Failed to install requirements")
+        print("Failed to install requirements")
         sys.exit(1)
     
     # Phase 5: Test connectivity
     if not test_connectivity():
-        print("❌ Connectivity test failed")
+        print("Connectivity test failed")
         sys.exit(1)
     
     # Phase 6: Deploy cluster
     if not deploy_cluster():
-        print("❌ Cluster deployment failed")
+        print("Cluster deployment failed")
         sys.exit(1)
     
     # Phase 7: Setup kubeconfig
     if not setup_kubeconfig():
-        print("❌ Failed to setup kubeconfig")
+        print("Failed to setup kubeconfig")
         sys.exit(1)
     
     # Phase 7: Verify cluster
     if not verify_cluster():
-        print("❌ Cluster verification failed")
+        print("Cluster verification failed")
         sys.exit(1)
     
-    print("\n🎉 Kubernetes cluster deployment completed successfully!")
+    print("\nKubernetes cluster deployment completed successfully!")
     print("=" * 60)
     print("Next steps:")
     print("1. Set KUBECONFIG: export KUBECONFIG=~/.kube/config-k8s-proxmox")

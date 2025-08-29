@@ -21,11 +21,11 @@ def get_terraform_output():
         )
         return json.loads(result.stdout)
     except subprocess.CalledProcessError as e:
-        print(f"❌ Error getting Terraform output: {e}")
+        print(f"Error getting Terraform output: {e}")
         print(f"Stderr: {e.stderr}")
         sys.exit(1)
     except json.JSONDecodeError as e:
-        print(f"❌ Error parsing Terraform JSON: {e}")
+        print(f"Error parsing Terraform JSON: {e}")
         sys.exit(1)
 
 
@@ -35,7 +35,7 @@ def generate_kubespray_inventory(terraform_output):
     cluster_summary = terraform_output.get("cluster_summary", {}).get("value", {})
     
     if not cluster_summary:
-        print("❌ No cluster_summary found in Terraform output")
+        print("No cluster_summary found in Terraform output")
         sys.exit(1)
     
     inventory = {
@@ -144,10 +144,10 @@ def main():
     
     write_inventory_ini(inventory, kubespray_inventory_path)
     
-    print(f"✅ Kubespray inventory generated: {kubespray_inventory_path}")
+    print(f"Kubespray inventory generated: {kubespray_inventory_path}")
     
     # Display summary
-    print("\n📋 Cluster Summary:")
+    print("\nCluster Summary:")
     control_plane_count = len(inventory["kube_control_plane"]["hosts"])
     worker_count = len(inventory["kube_node"]["hosts"])
     print(f"  • Control Plane Nodes: {control_plane_count}")
@@ -155,7 +155,7 @@ def main():
     print(f"  • Total Nodes: {control_plane_count + worker_count}")
     
     # Display inventory preview
-    print(f"\n📄 Inventory Preview:")
+    print(f"\nInventory Preview:")
     with open(kubespray_inventory_path, 'r') as f:
         content = f.read()
         print(content[:500] + ("..." if len(content) > 500 else ""))

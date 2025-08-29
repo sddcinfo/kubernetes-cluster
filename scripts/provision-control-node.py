@@ -60,7 +60,7 @@ def run_ssh_command(command, timeout=300):
         return 1, "", str(e)
 
 def main():
-    print(f"🚀 Provisioning Kubernetes control plane node: {VM_NAME}")
+    print(f"Provisioning Kubernetes control plane node: {VM_NAME}")
     print(f"   Template: {TEMPLATE_ID}")
     print(f"   New VM ID: {NEW_VM_ID}")
     print(f"   Static IP: {VM_IP}/24")
@@ -68,10 +68,10 @@ def main():
     print()
     
     # Step 1: Check if VM already exists
-    print("1️⃣ Checking if VM already exists...")
+    print("Checking if VM already exists...")
     returncode, stdout, stderr = run_ssh_command(f"qm status {NEW_VM_ID}")
     if returncode == 0:
-        print(f"   ⚠️  VM {NEW_VM_ID} already exists!")
+        print(f"    VM {NEW_VM_ID} already exists!")
         response = input("   Do you want to destroy it and recreate? (y/n): ")
         if response.lower() != 'y':
             print("   Aborting...")
@@ -82,61 +82,61 @@ def main():
         time.sleep(2)
         returncode, stdout, stderr = run_ssh_command(f"qm destroy {NEW_VM_ID}")
         if returncode != 0:
-            print(f"   ❌ Failed to destroy VM: {stderr}")
+            print(f"   Failed to destroy VM: {stderr}")
             sys.exit(1)
-        print("   ✅ Existing VM destroyed")
+        print("   Existing VM destroyed")
     else:
-        print("   ✅ VM does not exist, proceeding...")
+        print("   VM does not exist, proceeding...")
     
     # Step 2: Clone from template
-    print(f"\n2️⃣ Cloning from template {TEMPLATE_ID}...")
+    print(f"\nCloning from template {TEMPLATE_ID}...")
     returncode, stdout, stderr = run_ssh_command(
         f"qm clone {TEMPLATE_ID} {NEW_VM_ID} --name {VM_NAME} --full true"
     )
     if returncode != 0:
-        print(f"   ❌ Failed to clone template: {stderr}")
+        print(f"   Failed to clone template: {stderr}")
         sys.exit(1)
-    print(f"   ✅ Successfully cloned to VM {NEW_VM_ID}")
+    print(f"   Successfully cloned to VM {NEW_VM_ID}")
     
     # Step 3: Configure VM resources
-    print("\n3️⃣ Configuring VM resources...")
+    print("\nConfiguring VM resources...")
     
     # Set CPU and memory
     returncode, stdout, stderr = run_ssh_command(
         f"qm set {NEW_VM_ID} --cores {VM_CORES} --memory {VM_MEMORY}"
     )
     if returncode != 0:
-        print(f"   ❌ Failed to set resources: {stderr}")
+        print(f"   Failed to set resources: {stderr}")
         sys.exit(1)
-    print(f"   ✅ Set {VM_CORES} cores and {VM_MEMORY}MB RAM")
+    print(f"   Set {VM_CORES} cores and {VM_MEMORY}MB RAM")
     
     # Resize disk
     returncode, stdout, stderr = run_ssh_command(
         f"qm resize {NEW_VM_ID} scsi0 {VM_DISK}"
     )
     if returncode != 0:
-        print(f"   ⚠️  Warning: Could not resize disk: {stderr}")
+        print(f"    Warning: Could not resize disk: {stderr}")
     else:
-        print(f"   ✅ Resized disk to {VM_DISK}")
+        print(f"   Resized disk to {VM_DISK}")
     
     # Step 4: Configure static IP via cloud-init
-    print("\n4️⃣ Configuring static IP via cloud-init...")
+    print("\nConfiguring static IP via cloud-init...")
     returncode, stdout, stderr = run_ssh_command(
         f"qm set {NEW_VM_ID} --ipconfig0 ip={VM_IP}/24,gw=10.10.1.1"
     )
     if returncode != 0:
-        print(f"   ❌ Failed to set static IP: {stderr}")
+        print(f"   Failed to set static IP: {stderr}")
         sys.exit(1)
-    print(f"   ✅ Configured static IP {VM_IP}/24")
+    print(f"   Configured static IP {VM_IP}/24")
     
     # Set nameserver
     returncode, stdout, stderr = run_ssh_command(
         f"qm set {NEW_VM_ID} --nameserver 10.10.1.1"
     )
     if returncode != 0:
-        print(f"   ⚠️  Warning: Could not set nameserver: {stderr}")
+        print(f"    Warning: Could not set nameserver: {stderr}")
     else:
-        print("   ✅ Set nameserver to 10.10.1.1")
+        print("   Set nameserver to 10.10.1.1")
     
     # Set hostname via cloud-init
     returncode, stdout, stderr = run_ssh_command(
@@ -144,15 +144,15 @@ def main():
     )
     
     # Step 5: Start the VM
-    print("\n5️⃣ Starting VM...")
+    print("\nStarting VM...")
     returncode, stdout, stderr = run_ssh_command(f"qm start {NEW_VM_ID}")
     if returncode != 0:
-        print(f"   ❌ Failed to start VM: {stderr}")
+        print(f"   Failed to start VM: {stderr}")
         sys.exit(1)
-    print("   ✅ VM started")
+    print("   VM started")
     
     # Step 6: Wait for VM to be ready
-    print("\n6️⃣ Waiting for VM to be ready...")
+    print("\nWaiting for VM to be ready...")
     max_attempts = 30
     for attempt in range(1, max_attempts + 1):
         print(f"   Attempt {attempt}/{max_attempts} - checking VM status...")
@@ -171,7 +171,7 @@ def main():
                         for addr in iface['ip-addresses']:
                             if addr.get('ip-address', '').startswith('10.10.1.'):
                                 detected_ip = addr['ip-address']
-                                print(f"   ✅ VM is ready! Detected IP: {detected_ip}")
+                                print(f"   VM is ready! Detected IP: {detected_ip}")
                                 break
                         else:
                             continue
@@ -185,10 +185,10 @@ def main():
         
         time.sleep(10)
     else:
-        print("   ⚠️  VM did not become ready in time, but may still be booting...")
+        print("    VM did not become ready in time, but may still be booting...")
     
     # Step 7: Test SSH connectivity
-    print("\n7️⃣ Testing SSH connectivity...")
+    print("\nTesting SSH connectivity...")
     time.sleep(10)  # Give SSH service time to start
     
     ssh_test = subprocess.run(
@@ -199,13 +199,13 @@ def main():
     )
     
     if ssh_test.returncode == 0:
-        print(f"   ✅ SSH connection successful! Hostname: {ssh_test.stdout.strip()}")
+        print(f"   SSH connection successful! Hostname: {ssh_test.stdout.strip()}")
     else:
-        print(f"   ⚠️  SSH connection failed, VM may need more time to initialize")
+        print(f"    SSH connection failed, VM may need more time to initialize")
     
     # Summary
     print("\n" + "="*60)
-    print("✅ PROVISIONING COMPLETE!")
+    print("PROVISIONING COMPLETE!")
     print("="*60)
     print(f"VM Name: {VM_NAME}")
     print(f"VM ID: {NEW_VM_ID}")
