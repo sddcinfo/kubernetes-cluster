@@ -81,6 +81,11 @@ scripts/tofu
 *.retry
 .ansible/
 
+# Kubespray
+kubespray/
+!kubespray/.gitkeep
+.kubespray-venv/
+
 # OS generated files
 Thumbs.db
 .DS_Store

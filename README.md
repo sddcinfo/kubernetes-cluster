@@ -133,13 +133,42 @@ cd terraform && terraform apply               # Deploy VMs with OpenTofu
 python3 scripts/deploy-kubespray-cluster.py   # Deploy Kubernetes with Kubespray
 ```
 
-### New Kubespray-Based Deployment 🚀
+### Enhanced Fresh Cluster Deployment 🚀
 
-**SUCCESSFULLY IMPLEMENTED** - The latest version uses **Kubespray v2.26.0** for production-ready Kubernetes deployment:
+**LATEST** - The deployment script now provides **component-specific deployment control** for maximum flexibility:
+
+```bash
+# Complete fresh deployment automation
+python3 scripts/deploy-fresh-cluster.py
+
+# Component-specific deployments
+python3 scripts/deploy-fresh-cluster.py --infrastructure-only  # Deploy VMs only
+python3 scripts/deploy-fresh-cluster.py --kubespray-only      # Setup Kubespray only  
+python3 scripts/deploy-fresh-cluster.py --kubernetes-only     # Deploy K8s only
+
+# Non-destructive verification
+python3 scripts/deploy-fresh-cluster.py --verify-only         # Check VM status & SSH
+
+# Advanced control flags
+python3 scripts/deploy-fresh-cluster.py --skip-cleanup        # Skip VM cleanup phase
+python3 scripts/deploy-fresh-cluster.py --skip-terraform-reset # Skip state reset
+python3 scripts/deploy-fresh-cluster.py --force-recreate      # Force complete rebuild
+```
+
+**Key Features:**
+- **Dynamic VM Detection** - Automatically reads placement from Terraform configuration
+- **Component Isolation** - Deploy infrastructure, Kubespray, or Kubernetes independently  
+- **Smart Verification** - Non-destructive status checking with SSH connectivity testing
+- **Robust Error Handling** - Serial deployment with retry mechanisms for reliability
+- **Download Optimization** - `download_run_once: true` with comprehensive caching
+
+### Kubespray-Based Production Deployment
+
+**SUCCESSFULLY IMPLEMENTED** - Uses **Kubespray v2.26.0** for production-ready clusters:
 
 - **Kubernetes v1.30.4** - Deployed and validated stable version
 - **Cilium v1.15.4** - Advanced eBPF networking with full functionality
-- **Download Optimization** - `download_run_once: true` for efficient caching and distribution
+- **Download Optimization** - Efficient caching and distribution across nodes
 - **Automated HA Setup** - 3 control plane nodes with stacked etcd (fully operational)
 - **Security Hardening** - Production security configurations applied
 - **Repository Separation** - Kubespray downloaded as dependency, keeping repo clean
@@ -176,38 +205,49 @@ The Kubernetes cluster deployment is fully operational with the following achiev
 
 For detailed implementation progress, see [STATUS.md](docs/STATUS.md)
 
-### Individual Phase Execution
+### Component-Specific Deployment Workflow
 
-For granular control or troubleshooting, you can run phases separately:
+The enhanced deployment script provides fine-grained control over deployment phases:
+
+```bash
+# Method 1: Step-by-step component deployment
+python3 scripts/deploy-fresh-cluster.py --infrastructure-only    # Create VMs with Terraform
+python3 scripts/deploy-fresh-cluster.py --verify-only           # Verify VM status & SSH
+python3 scripts/deploy-fresh-cluster.py --kubespray-only        # Setup Kubespray environment
+python3 scripts/deploy-fresh-cluster.py --kubernetes-only       # Deploy Kubernetes cluster
+
+# Method 2: Single command deployment
+python3 scripts/deploy-fresh-cluster.py                         # Complete automation
+
+# Method 3: Skip phases for faster iteration
+python3 scripts/deploy-fresh-cluster.py --skip-cleanup --skip-terraform-reset
+```
+
+**Verification and Troubleshooting:**
+```bash
+# Check VM status without any destructive actions
+python3 scripts/deploy-fresh-cluster.py --verify-only
+
+# Force complete rebuild from clean slate
+python3 scripts/deploy-fresh-cluster.py --force-recreate
+
+# View all available options
+python3 scripts/deploy-fresh-cluster.py --help
+```
+
+### Legacy Individual Phase Execution
+
+For granular control or troubleshooting using the original scripts:
 
 ```bash
 # Phase 1: Foundation setup only
 python3 scripts/cluster-manager.py --setup-foundation
-# This intelligent script handles:
-# - Environment validation with re-run optimization
-# - Terraform user setup with Administrator role (VM.Monitor workaround)
-# - RBD-ISO storage configuration
-# - Cloud image preparation with qemu-guest-agent verification
-# - State tracking to enable safe re-runs
-
 # Phase 2: Template creation only (requires foundation)
 python3 scripts/cluster-manager.py --create-templates
-# Creates both templates with robust error handling:
-# - Template 9000: ubuntu-base-template (base Ubuntu with cloud-init)
-# - Template 9001: ubuntu-k8s-template (pre-installed Kubernetes v1.33.4)
-# - Enhanced IP detection with 30 retry attempts
-# - SSH connectivity verification before installation
-# - Graceful VM shutdown and template conversion
-
-# Alternative: Clean slate automation
-python3 scripts/template-manager.py --remove-all --yes  # Clean everything
-python3 scripts/cluster-manager.py --setup-and-create --force-rebuild  # Full automation
-
 # Phase 3-5: Infrastructure and Kubernetes deployment
 python3 scripts/deploy-dns-config.py          # Deploy DNS configuration
 cd terraform && terraform apply               # Deploy VMs with OpenTofu
 python3 scripts/deploy-kubespray-cluster.py   # Deploy Kubernetes with Kubespray
-./05-deploy-platform-services.sh              # Deploy platform services
 ```
 
 ### Deployment Management

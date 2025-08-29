@@ -8,11 +8,14 @@ import subprocess
 import sys
 import time
 import shutil
+import argparse
 from pathlib import Path
 
 
 class ClusterDeployer:
-    def __init__(self):
+    def __init__(self, verify_only=False, infrastructure_only=False, kubespray_only=False, 
+                 kubernetes_only=False, skip_cleanup=False, skip_terraform_reset=False, 
+                 force_recreate=False):
         self.project_dir = Path(__file__).parent.parent
         self.terraform_dir = self.project_dir / "terraform"
         self.kubespray_version = "v2.26.0"
@@ -23,6 +26,15 @@ class ClusterDeployer:
         self.vm_count = 8  # 3 control + 4 workers + 1 haproxy
         self.vm_ids = [130, 131, 132, 133, 140, 141, 142, 143]  # VMs to clean up
         self.proxmox_nodes = ["node1", "node2", "node3", "node4"]
+        
+        # Mode flags
+        self.verify_only = verify_only
+        self.infrastructure_only = infrastructure_only
+        self.kubespray_only = kubespray_only
+        self.kubernetes_only = kubernetes_only
+        self.skip_cleanup = skip_cleanup
+        self.skip_terraform_reset = skip_terraform_reset
+        self.force_recreate = force_recreate
         
     def run_command(self, command, description, cwd=None, check=True, timeout=None):
         """Run a command with proper error handling"""
@@ -544,20 +556,328 @@ etcd_election_timeout: "2500"
         print("✅ Cluster verification completed!")
         return True
         
+    def get_vm_placement_from_terraform(self):
+        """Get VM placement mapping from Terraform configuration or state"""
+        vm_placement = {}
+        
+        # First try to get from Terraform state if it exists
+        if (self.terraform_dir / "terraform.tfstate").exists():
+            try:
+                result = self.run_command(
+                    ["terraform", "show", "-json"],
+                    "Reading Terraform state for VM placement",
+                    cwd=self.terraform_dir,
+                    check=False
+                )
+                if result.returncode == 0:
+                    state_data = json.loads(result.stdout)
+                    if "values" in state_data and "root_module" in state_data["values"]:
+                        resources = state_data["values"]["root_module"].get("resources", [])
+                        for resource in resources:
+                            if resource.get("type") == "proxmox_virtual_environment_vm":
+                                values = resource.get("values", {})
+                                vm_id = values.get("vm_id")
+                                node_name = values.get("node_name")
+                                if vm_id and node_name:
+                                    vm_placement[vm_id] = node_name
+                    
+                    if vm_placement:
+                        print(f"   Found {len(vm_placement)} VMs in Terraform state")
+                        return vm_placement
+            except (json.JSONDecodeError, KeyError, subprocess.CalledProcessError):
+                pass
+        
+        # Fallback: try to get from Terraform plan
+        try:
+            result = self.run_command(
+                ["terraform", "plan", "-out=/tmp/tfplan"],
+                "Generating Terraform plan for VM placement",
+                cwd=self.terraform_dir,
+                check=False
+            )
+            if result.returncode == 0:
+                result = self.run_command(
+                    ["terraform", "show", "-json", "/tmp/tfplan"],
+                    "Reading Terraform plan for VM placement", 
+                    cwd=self.terraform_dir,
+                    check=False
+                )
+                if result.returncode == 0:
+                    plan_data = json.loads(result.stdout)
+                    if "planned_values" in plan_data and "root_module" in plan_data["planned_values"]:
+                        resources = plan_data["planned_values"]["root_module"].get("resources", [])
+                        for resource in resources:
+                            if resource.get("type") == "proxmox_virtual_environment_vm":
+                                values = resource.get("values", {})
+                                vm_id = values.get("vm_id")
+                                node_name = values.get("node_name")
+                                if vm_id and node_name:
+                                    vm_placement[vm_id] = node_name
+                    
+                    if vm_placement:
+                        print(f"   Found {len(vm_placement)} VMs in Terraform plan")
+                        return vm_placement
+        except (json.JSONDecodeError, KeyError, subprocess.CalledProcessError):
+            pass
+        
+        # Last resort: correct hardcoded fallback based on user specification
+        print("   Using fallback VM placement mapping")
+        return {
+            130: "node4",  # k8s-haproxy-lb  
+            131: "node1",  # k8s-control-1
+            132: "node2",  # k8s-control-2  
+            133: "node3",  # k8s-control-3
+            140: "node1",  # k8s-worker-1
+            141: "node2",  # k8s-worker-2
+            142: "node3",  # k8s-worker-3
+            143: "node4"   # k8s-worker-4
+        }
+        
+    def verify_existing_vms(self):
+        """Verify existing VMs without destructive actions"""
+        print("\n🔍 VM Verification Mode")
+        print("=" * 50)
+        
+        # First, check if VMs exist on Proxmox hypervisors
+        print("🏗️ Checking VM status on Proxmox hypervisors...")
+        
+        # Get VM placement from Terraform configuration
+        vm_placement = self.get_vm_placement_from_terraform()
+        
+        missing_vms = []
+        stopped_vms = []
+        running_vms = []
+        
+        for vm_id, expected_node in vm_placement.items():
+            print(f"🔍 Checking VM {vm_id} on {expected_node}...")
+            
+            result = self.run_command(
+                f"ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 root@{expected_node} 'qm status {vm_id} 2>/dev/null'",
+                f"Checking VM {vm_id} status",
+                check=False,
+                timeout=10
+            )
+            
+            if result and result.returncode == 0:
+                if "status: running" in result.stdout:
+                    print(f"   ✅ VM {vm_id} is running on {expected_node}")
+                    running_vms.append(vm_id)
+                elif "status: stopped" in result.stdout:
+                    print(f"   ⚠️ VM {vm_id} exists but is stopped on {expected_node}")
+                    stopped_vms.append(vm_id)
+                else:
+                    print(f"   ❓ VM {vm_id} has unknown status: {result.stdout.strip()}")
+            else:
+                print(f"   ❌ VM {vm_id} not found on {expected_node}")
+                missing_vms.append(vm_id)
+        
+        # Report VM status summary
+        print(f"\n📊 VM Status Summary:")
+        print(f"   ✅ Running: {len(running_vms)}")
+        print(f"   ⚠️ Stopped: {len(stopped_vms)}")
+        print(f"   ❌ Missing: {len(missing_vms)}")
+        
+        if missing_vms:
+            print(f"\n❌ Missing VMs: {missing_vms}")
+            print("   Run full deployment to create missing VMs")
+            sys.exit(1)
+            
+        if stopped_vms:
+            print(f"\n⚠️ Stopped VMs: {stopped_vms}")
+            print("   These VMs exist but need to be started")
+            
+        if not running_vms:
+            print("\n❌ No running VMs found")
+            sys.exit(1)
+            
+        # Test SSH connectivity to running VMs only
+        if running_vms:
+            print(f"\n🔗 Testing SSH connectivity to {len(running_vms)} running VMs...")
+            
+            # Map VM IDs to IPs and names
+            vm_info = {
+                130: ("k8s-haproxy-lb", "10.10.1.30"),
+                131: ("k8s-control-1", "10.10.1.31"),
+                132: ("k8s-control-2", "10.10.1.32"), 
+                133: ("k8s-control-3", "10.10.1.33"),
+                140: ("k8s-worker-1", "10.10.1.40"),
+                141: ("k8s-worker-2", "10.10.1.41"),
+                142: ("k8s-worker-3", "10.10.1.42"),
+                143: ("k8s-worker-4", "10.10.1.43")
+            }
+            
+            ssh_failed = []
+            for vm_id in running_vms:
+                vm_name, ip = vm_info[vm_id]
+                result = self.run_command(
+                    f"timeout 5 ssh -o StrictHostKeyChecking=no -o ConnectTimeout=3 -i /home/sysadmin/.ssh/sysadmin_automation_key sysadmin@{ip} 'echo OK'",
+                    f"Testing {vm_name} ({ip})",
+                    check=False
+                )
+                
+                if result and result.returncode == 0 and "OK" in result.stdout:
+                    print(f"   ✅ {vm_name} ({ip}) is reachable via SSH")
+                else:
+                    print(f"   ❌ {vm_name} ({ip}) is NOT reachable via SSH")
+                    ssh_failed.append((vm_name, ip))
+            
+            if ssh_failed:
+                print(f"\n❌ {len(ssh_failed)} VMs failed SSH connectivity test:")
+                for vm_name, ip in ssh_failed:
+                    print(f"   - {vm_name} ({ip})")
+                sys.exit(1)
+            else:
+                print(f"✅ All {len(running_vms)} running VMs are accessible via SSH")
+            
+            # Test Ansible connectivity if kubespray exists
+            if self.kubespray_dir.exists():
+                inventory_file = self.kubespray_dir / "inventory" / "proxmox-cluster" / "inventory.ini"
+                if inventory_file.exists():
+                    print("\n🔌 Testing Ansible connectivity...")
+                    ansible_path = self.venv_dir / "bin" / "ansible"
+                    
+                    result = self.run_command(
+                        [str(ansible_path), "-i", str(inventory_file), "all", "-m", "ping"],
+                        "Testing Ansible connectivity",
+                        cwd=self.kubespray_dir,
+                        check=False
+                    )
+                    
+                    if result.returncode == 0:
+                        print("✅ All nodes are reachable via Ansible")
+                    else:
+                        print("❌ Ansible connectivity test failed")
+                else:
+                    print("⚠️ Kubespray inventory not found - run full deployment to generate")
+            else:
+                print("⚠️ Kubespray not found - run full deployment to set up")
+                
+            print("\n✅ VM verification completed successfully!")
+        else:
+            print("❌ No running VMs to test")
+            sys.exit(1)
+    
     def run(self):
-        """Run the complete deployment"""
-        print("🚀 Fresh Kubernetes Cluster Deployment")
+        """Run the deployment based on specified flags"""
+        if self.verify_only:
+            self.verify_existing_vms()
+            return
+            
+        # Determine deployment mode
+        if self.infrastructure_only:
+            self.run_infrastructure_only()
+        elif self.kubespray_only:
+            self.run_kubespray_only()
+        elif self.kubernetes_only:
+            self.run_kubernetes_only()
+        else:
+            self.run_full_deployment()
+            
+    def run_infrastructure_only(self):
+        """Deploy only infrastructure (VMs) with Terraform"""
+        print("🏗️ Infrastructure-Only Deployment")
         print("=" * 50)
         print(f"Project Directory: {self.project_dir}")
         print(f"Terraform Directory: {self.terraform_dir}")
         print(f"Expected VMs: {self.vm_count}")
         print("=" * 50)
         
-        # Phase -1: Manual cleanup
-        self.manual_vm_cleanup()
+        # Phase -1: Manual cleanup (unless skipped)
+        if not self.skip_cleanup or self.force_recreate:
+            self.manual_vm_cleanup()
         
-        # Phase 0: Reset
-        self.reset_terraform()
+        # Phase 0: Reset (unless skipped)
+        if not self.skip_terraform_reset or self.force_recreate:
+            self.reset_terraform()
+        
+        # Phase 1: Infrastructure
+        self.deploy_infrastructure()
+        
+        print("\n" + "=" * 50)
+        print("🏗️ Infrastructure deployment completed!")
+        print("=" * 50)
+        print("\nNext steps:")
+        print("1. Run with --kubespray-only to setup Kubespray")
+        print("2. Run with --kubernetes-only to deploy Kubernetes")
+        print("3. Or run without flags for remaining phases")
+        
+    def run_kubespray_only(self):
+        """Setup and configure Kubespray only"""
+        print("📚 Kubespray-Only Setup")
+        print("=" * 50)
+        
+        # Check if infrastructure exists
+        if not (self.terraform_dir / "terraform.tfstate").exists():
+            print("⚠️ No Terraform state found. Deploy infrastructure first with --infrastructure-only")
+            
+        # Phase 2: Setup Kubespray
+        self.setup_kubespray()
+        
+        # Phase 3: Configure
+        self.configure_kubespray()
+        
+        print("\n" + "=" * 50)
+        print("📚 Kubespray setup completed!")
+        print("=" * 50)
+        print("\nNext steps:")
+        print("1. Run with --kubernetes-only to deploy Kubernetes")
+        print("2. Or run without flags for remaining phases")
+        
+    def run_kubernetes_only(self):
+        """Deploy Kubernetes cluster only (assumes infrastructure exists)"""
+        print("☸️ Kubernetes-Only Deployment")
+        print("=" * 50)
+        
+        # Check prerequisites
+        if not (self.terraform_dir / "terraform.tfstate").exists():
+            print("❌ No Terraform state found. Deploy infrastructure first with --infrastructure-only")
+            sys.exit(1)
+            
+        if not self.kubespray_dir.exists():
+            print("❌ Kubespray not found. Setup Kubespray first with --kubespray-only")
+            sys.exit(1)
+            
+        inventory_file = self.kubespray_dir / "inventory" / "proxmox-cluster" / "inventory.ini"
+        if not inventory_file.exists():
+            print("❌ Kubespray inventory not found. Setup Kubespray first with --kubespray-only")
+            sys.exit(1)
+        
+        # Phase 4: Test connectivity
+        self.test_ansible_connectivity()
+        
+        # Phase 5: Deploy Kubernetes
+        self.deploy_kubernetes()
+        
+        # Phase 6: Setup kubeconfig
+        self.setup_kubeconfig()
+        
+        # Phase 7: Verify
+        self.verify_cluster()
+        
+        print("\n" + "=" * 50)
+        print("☸️ Kubernetes deployment completed!")
+        print("=" * 50)
+        print("\nNext steps:")
+        print("1. Set KUBECONFIG: export KUBECONFIG=~/.kube/config-k8s-proxmox")
+        print("2. Verify cluster: kubectl get nodes")
+        print("3. Deploy applications: kubectl apply -f your-app.yaml")
+        
+    def run_full_deployment(self):
+        """Run the complete deployment"""
+        print("🚀 Full Kubernetes Cluster Deployment")
+        print("=" * 50)
+        print(f"Project Directory: {self.project_dir}")
+        print(f"Terraform Directory: {self.terraform_dir}")
+        print(f"Expected VMs: {self.vm_count}")
+        print("=" * 50)
+        
+        # Phase -1: Manual cleanup (unless skipped)
+        if not self.skip_cleanup:
+            self.manual_vm_cleanup()
+        
+        # Phase 0: Reset (unless skipped)
+        if not self.skip_terraform_reset:
+            self.reset_terraform()
         
         # Phase 1: Infrastructure
         self.deploy_infrastructure()
@@ -581,7 +901,7 @@ etcd_election_timeout: "2500"
         self.verify_cluster()
         
         print("\n" + "=" * 50)
-        print("🎉 Fresh Kubernetes cluster deployment completed successfully!")
+        print("🎉 Full Kubernetes cluster deployment completed successfully!")
         print("=" * 50)
         print("\nNext steps:")
         print("1. Set KUBECONFIG: export KUBECONFIG=~/.kube/config-k8s-proxmox")
@@ -591,12 +911,50 @@ etcd_election_timeout: "2500"
 
 def main():
     """Main entry point"""
+    parser = argparse.ArgumentParser(description="Fresh Kubernetes Cluster Deployment")
+    
+    # Verification mode
+    parser.add_argument("--verify-only", action="store_true", 
+                       help="Only verify existing VMs without destructive actions")
+    
+    # Component-specific deployment flags
+    parser.add_argument("--infrastructure-only", action="store_true",
+                       help="Deploy only infrastructure (VMs) with Terraform")
+    parser.add_argument("--kubespray-only", action="store_true", 
+                       help="Setup and configure Kubespray only")
+    parser.add_argument("--kubernetes-only", action="store_true",
+                       help="Deploy Kubernetes cluster only (assumes infrastructure exists)")
+    
+    # Phase control flags
+    parser.add_argument("--skip-cleanup", action="store_true",
+                       help="Skip manual VM cleanup phase")
+    parser.add_argument("--skip-terraform-reset", action="store_true", 
+                       help="Skip Terraform state reset")
+    parser.add_argument("--force-recreate", action="store_true",
+                       help="Force complete recreation (cleanup + reset + deploy)")
+    
+    args = parser.parse_args()
+    
+    # Validate argument combinations
+    component_flags = [args.infrastructure_only, args.kubespray_only, args.kubernetes_only]
+    if sum(component_flags) > 1:
+        print("❌ Cannot specify multiple component flags simultaneously")
+        sys.exit(1)
+        
     # Check if running from correct directory
     if not Path("terraform/kubernetes-cluster.tf").exists():
         print("❌ Must run from kubernetes-cluster root directory")
         sys.exit(1)
         
-    deployer = ClusterDeployer()
+    deployer = ClusterDeployer(
+        verify_only=args.verify_only,
+        infrastructure_only=args.infrastructure_only,
+        kubespray_only=args.kubespray_only,
+        kubernetes_only=args.kubernetes_only,
+        skip_cleanup=args.skip_cleanup,
+        skip_terraform_reset=args.skip_terraform_reset,
+        force_recreate=args.force_recreate
+    )
     deployer.run()
     
 
