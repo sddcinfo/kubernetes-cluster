@@ -1,67 +1,95 @@
-# Enterprise Kubernetes on Proxmox VE
+# Kubernetes Cluster Automation
+
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![Kubernetes](https://img.shields.io/badge/Kubernetes-1.30.4-326CE5?logo=kubernetes&logoColor=white)](https://kubernetes.io/)
+[![Kubespray](https://img.shields.io/badge/Kubespray-2.26.0-FF6B35)](https://kubespray.io/)
+[![Proxmox](https://img.shields.io/badge/Proxmox_VE-8.0+-E57000?logo=proxmox&logoColor=white)](https://www.proxmox.com/)
 
 Production-grade automation framework for deploying highly available Kubernetes clusters on Proxmox VE infrastructure using industry-standard tooling and best practices.
 
+## Table of Contents
+
+- [Overview](#overview)
+- [Architecture](#architecture)
+- [Prerequisites](#prerequisites)
+- [Quick Start](#quick-start)
+- [Network Configuration](#network-configuration)
+- [Deployment Options](#deployment-options)
+- [Configuration](#configuration)
+- [Operations](#operations)
+- [Troubleshooting](#troubleshooting)
+- [Contributing](#contributing)
+- [License](#license)
+
 ## Overview
 
-This solution provides comprehensive automation for deploying and managing production-ready Kubernetes clusters on Proxmox VE environments. Built using a proven technology stack of Packer, OpenTofu, Ansible, and Python, it eliminates manual configuration steps while ensuring consistent, reliable deployments.
+This solution provides comprehensive automation for deploying and managing production-ready Kubernetes clusters on Proxmox VE environments. Built using a proven technology stack of OpenTofu, Kubespray, and Python, it eliminates manual configuration steps while ensuring consistent, reliable deployments.
 
-**Note:** This solution requires VM templates (IDs 9000 and 9001) to be created first using the template-manager.py script from the ansible-provisioning-server repository.
+**Important**: This solution requires VM templates (IDs 9000 and 9001) to be created first using the [ansible-provisioning-server](https://github.com/sddcinfo/ansible-provisioning-server) repository.
 
 ### Key Features
 
-- **Zero-touch deployment** - Fully automated cluster provisioning from bare infrastructure
-- **High availability** - Multi-master control plane with load balancer and keepalived
-- **Production hardening** - Security best practices, monitoring, and backup solutions
-- **Scalable architecture** - Easy horizontal scaling of worker nodes
-- **Infrastructure as Code** - Version-controlled, repeatable deployments
-- **Comprehensive monitoring** - Prometheus, Grafana, and alerting stack included
+- **Zero-Touch Deployment**: Fully automated cluster provisioning from infrastructure to platform services
+- **High Availability**: Multi-master control plane with integrated load balancing
+- **Production Hardening**: Security best practices and enterprise-grade configurations
+- **Scalable Architecture**: Easy horizontal scaling with automated node management
+- **Infrastructure as Code**: Version-controlled, repeatable deployments with state management
+- **Comprehensive Monitoring**: Integrated observability stack with Prometheus and Grafana
 
 ### Technology Stack
 
-| Component | Technology | Purpose |
-|-----------|------------|---------|
-| **VM Templates** | Cloud Images + virt-customize | Immutable VM template creation |
-| **Infrastructure** | OpenTofu | Declarative infrastructure provisioning |
-| **Configuration** | Ansible | Idempotent configuration management |
-| **Orchestration** | Python 3.11+ | Deployment coordination and state tracking |
-| **Container Network** | Cilium | eBPF-based CNI with advanced security and observability |
-| **Storage** | Proxmox CSI | Dynamic persistent volume provisioning |
-| **Load Balancing** | MetalLB | Bare-metal LoadBalancer service implementation |
+| Component | Technology | Version | Purpose |
+|-----------|------------|---------|---------|
+| **Infrastructure** | OpenTofu | 1.7+ | Declarative infrastructure provisioning |
+| **Kubernetes** | Kubespray | 2.26.0 | Production-ready cluster deployment |
+| **Container Network** | Calico | 3.26+ | BGP-based CNI with proven reliability |
+| **Storage** | Proxmox CSI | Latest | Dynamic persistent volume provisioning |
+| **Load Balancing** | MetalLB | Latest | Bare-metal LoadBalancer implementation |
+| **Orchestration** | Python | 3.11+ | Deployment coordination and automation |
 
 ## Architecture
 
-The solution deploys a production-grade Kubernetes cluster with the following components:
+### Cluster Design
 
-- **3 Control Plane Nodes** - High availability with stacked etcd
-- **4+ Worker Nodes** - Configurable based on workload requirements  
-- **HAProxy + Keepalived** - Control plane load balancing and VIP management
-- **Cilium CNI** - Advanced networking with eBPF dataplane
-- **Proxmox CSI** - Integration with Ceph storage backend
-- **Platform Services** - Ingress, monitoring, backup, and certificate management
+The solution deploys a production-grade Kubernetes cluster with the following topology:
 
-### Network Configuration
+- **Control Plane**: 3 nodes with stacked etcd for high availability
+- **Worker Nodes**: 4+ nodes with configurable scaling
+- **Load Balancer**: HAProxy + Keepalived for control plane access
+- **Network**: Calico CNI with BGP routing
+- **Storage**: Proxmox CSI with Ceph RBD integration
+
+### Network Topology
 
 ```
-Control Plane VIP:    10.10.1.30
-Control Plane Nodes:  10.10.1.31-33 (3 nodes)
-Worker Nodes:         10.10.1.40-49 (10 IPs reserved, 4 initially deployed)
-MetalLB Pool:         10.10.1.50-79 (30 IPs for LoadBalancer services)
-Infrastructure:       10.10.1.80-89 (monitoring, logging, registry)
-Future Expansion:     10.10.1.90-99
-DHCP Range:           10.10.1.100-200 (unchanged, for dynamic clients)
-```
+Network: 10.10.1.0/24 | Gateway: 10.10.1.1 | Domain: sddc.info
 
-For complete network allocation details, see [IP_ALLOCATION.md](docs/IP_ALLOCATION.md)
+Infrastructure Services     (10.10.1.1-29)
+├── 10.10.1.1               gateway.sddc.info (DNS/DHCP)
+└── 10.10.1.21-24           node1-4 (Proxmox hypervisors)
+
+Kubernetes Cluster         (10.10.1.30-99)
+├── Control Plane          (10.10.1.30-39)
+│   ├── 10.10.1.30          k8s-vip (Virtual IP)
+│   └── 10.10.1.31-33       k8s-control-1 through k8s-control-3
+├── Worker Nodes           (10.10.1.40-49)
+│   ├── 10.10.1.40-43       k8s-worker-1 through k8s-worker-4
+│   └── 10.10.1.44-49       Reserved for scaling
+├── MetalLB Pool           (10.10.1.50-79)
+├── Infrastructure         (10.10.1.80-89)
+└── Future Expansion       (10.10.1.90-99)
+
+DHCP Range                 (10.10.1.100-200)
+```
 
 ## Prerequisites
 
 ### Infrastructure Requirements
 
-- **Proxmox VE 8.0+** cluster with minimum 4 nodes
-- **Hardware per node**: 8+ CPU cores, 32GB+ RAM, 500GB+ storage
-- **Storage**: Ceph RBD or similar distributed storage configured
-- **Networking**: Bridge interface (vmbr0) configured for cluster traffic
+- **Proxmox VE**: Version 8.0+ cluster with minimum 4 nodes
+- **Hardware**: 8+ CPU cores, 32GB+ RAM, 500GB+ storage per node
+- **Storage**: Ceph RBD or distributed storage backend
+- **Network**: Bridge interface (vmbr0) for cluster communication
 - **DNS**: Forward and reverse DNS resolution configured
 
 ### Software Dependencies
@@ -69,210 +97,136 @@ For complete network allocation details, see [IP_ALLOCATION.md](docs/IP_ALLOCATI
 ```bash
 # Install required packages on deployment host
 sudo apt update
-sudo apt install -y python3 python3-pip ansible packer kubectl
+sudo apt install -y python3 python3-pip ansible kubectl
 
 # Install OpenTofu (recommended over Terraform)
 curl -sSL https://get.opentofu.org/install.sh | bash
-
-# Foundation setup script uses only Python standard library (no additional dependencies needed)
 ```
 
-### Proxmox Configuration
+### VM Templates
 
-1. Create API tokens with appropriate permissions for automation
-2. Configure storage pools (default: `rbd` for Ceph RBD)
-3. Setup network bridges for cluster communication
-4. Verify DNS resolution for external registries
-
-## Deployment Process
-
-### Phase-Based Deployment
-
-The deployment follows a structured approach:
-
-1. **Template Prerequisites** - Create VM templates using ansible-provisioning-server
-2. **Environment Validation** - Verify prerequisites and connectivity  
-3. **Infrastructure Provisioning** - Deploy VMs with OpenTofu
-4. **Kubernetes Bootstrap** - Initialize cluster with kubeadm
-5. **Platform Services** - Deploy monitoring, ingress, and storage
-
-### Step 0: Setup and Create VM Templates (Required)
-
-Before deploying the Kubernetes cluster, set up configuration and create templates:
+Create required templates using the ansible-provisioning-server repository:
 
 ```bash
-# 1. Setup shared configuration (on ansible-provisioning-server host)
+# On ansible-provisioning-server host
 cd /path/to/ansible-provisioning-server
-./scripts/bootstrap-config.sh
-
-# 2. Create VM templates
 python3 scripts/template-manager.py --create-templates
-
-# 3. Verify templates are created
-python3 scripts/template-manager.py --verify
 ```
 
 This creates:
-- Configuration at `~/proxmox-config/templates.yaml` (shared between repos)
-- Template ID 9000: Ubuntu 24.04 base template  
-- Template ID 9001: Ubuntu 24.04 with Kubernetes 1.33.4 pre-installed
+- **Template 9000**: Ubuntu 24.04 base template
+- **Template 9001**: Ubuntu 24.04 with Kubernetes runtime
 
-### Quick Start
+## Quick Start
 
 ```bash
 # Clone repository
 git clone https://github.com/sddcinfo/kubernetes-cluster.git
 cd kubernetes-cluster
 
-# 100% HANDS-OFF AUTOMATION: Complete foundation and template creation
-python3 scripts/cluster-manager.py --setup-and-create
-
-# Phase 3-5: Deploy infrastructure and Kubernetes (coming soon)
-python3 scripts/deploy-dns-config.py   # Deploy DNS configuration
-cd terraform && terraform apply      # Deploy VMs
-cd ../scripts
-./04-bootstrap-kubernetes.sh         # Initialize cluster
-./05-deploy-platform-services.sh     # Deploy services
+# Deploy complete cluster
+python3 scripts/deploy-fresh-cluster.py
 ```
 
-### 🚀 **100% Hands-Off Automation**
+## Network Configuration
 
-The cluster-manager now provides **completely automated template creation** with zero manual intervention:
+### DNS Configuration
+
+Deploy Kubernetes-specific DNS records:
 
 ```bash
-# From clean slate to production-ready templates in ~4 minutes
-python3 scripts/cluster-manager.py --setup-and-create
-
-# Features:
-# ✅ Automatic prerequisite validation
-# ✅ Terraform user setup with proper permissions  
-# ✅ Cloud image preparation with EFI boot support
-# ✅ Base template creation (ubuntu-base-template, ID 9000)
-# ✅ Kubernetes template with K8s v1.33.4 (ubuntu-k8s-template, ID 9001)
-# ✅ Robust error handling and retry mechanisms
-# ✅ Graceful VM management and template conversion
+python3 scripts/deploy-dns-config.py
 ```
 
-### Implementation Status
+This creates DNS entries for:
+- Control plane nodes and virtual IP
+- Worker nodes
+- Service endpoints (ingress, monitoring, registry)
+- Wildcard DNS for applications (*.apps.sddc.info)
 
-For current implementation status and progress details, see [STATUS.md](docs/STATUS.md)
+### IP Allocation
 
-### Individual Phase Execution
+The system uses a structured IP allocation strategy:
 
-For granular control or troubleshooting, you can run phases separately:
+| Range | Purpose | Example |
+|-------|---------|---------|
+| 10.10.1.30 | Control Plane VIP | k8s-vip.sddc.info |
+| 10.10.1.31-33 | Control Plane Nodes | k8s-control-1.sddc.info |
+| 10.10.1.40-49 | Worker Nodes | k8s-worker-1.sddc.info |
+| 10.10.1.50-79 | MetalLB LoadBalancer Pool | ingress.k8s.sddc.info |
+
+## Deployment Options
+
+### Complete Deployment
 
 ```bash
-# Phase 1: Foundation setup only
-python3 scripts/cluster-manager.py --setup-foundation
-# This intelligent script handles:
-# - Environment validation with re-run optimization
-# - Terraform user setup with Administrator role (VM.Monitor workaround)
-# - RBD-ISO storage configuration
-# - Cloud image preparation with qemu-guest-agent verification
-# - State tracking to enable safe re-runs
-
-# Phase 2: Template creation only (requires foundation)
-python3 scripts/cluster-manager.py --create-templates
-# Creates both templates with robust error handling:
-# - Template 9000: ubuntu-base-template (base Ubuntu with cloud-init)
-# - Template 9001: ubuntu-k8s-template (pre-installed Kubernetes v1.33.4)
-# - Enhanced IP detection with 30 retry attempts
-# - SSH connectivity verification before installation
-# - Graceful VM shutdown and template conversion
-
-# Alternative: Clean slate automation
-python3 scripts/template-manager.py --remove-all --yes  # Clean everything
-python3 scripts/cluster-manager.py --setup-and-create --force-rebuild  # Full automation
-
-# Phase 3-5: Infrastructure and Kubernetes deployment
-python3 scripts/deploy-dns-config.py   # Deploy DNS configuration
-cd terraform && terraform apply      # Deploy VMs  
-cd ../scripts
-./04-bootstrap-kubernetes.sh         # Initialize cluster
-./05-deploy-platform-services.sh     # Deploy services
+# Full cluster deployment with all phases
+python3 scripts/deploy-fresh-cluster.py
 ```
 
-### Deployment Management
+### Component-Specific Deployment
 
 ```bash
-# Check deployment status
-python3 cluster-deploy.py status
+# Infrastructure only (VMs with OpenTofu)
+python3 scripts/deploy-fresh-cluster.py --infrastructure-only
 
-# Deploy single node cluster
-python3 cluster-deploy.py deploy --profile single-node
+# Kubespray environment setup
+python3 scripts/deploy-fresh-cluster.py --kubespray-only
 
-# Deploy HA cluster (default)
-python3 cluster-deploy.py deploy --profile ha-cluster
+# Kubernetes cluster deployment
+python3 scripts/deploy-fresh-cluster.py --kubernetes-only
 
-# Deploy specific components
-python3 cluster-deploy.py deploy --components foundation template-manager infrastructure
+# Verification without changes
+python3 scripts/deploy-fresh-cluster.py --verify-only
+```
 
-# Force redeploy existing components
-python3 cluster-deploy.py deploy --force
+### Advanced Options
 
-# Clean up all resources
-python3 cluster-deploy.py cleanup
+```bash
+# Skip cleanup phase
+python3 scripts/deploy-fresh-cluster.py --skip-cleanup
+
+# Skip Terraform state reset
+python3 scripts/deploy-fresh-cluster.py --skip-terraform-reset
+
+# Force complete rebuild
+python3 scripts/deploy-fresh-cluster.py --force-recreate
 ```
 
 ## Configuration
 
 ### Cluster Sizing
 
-Edit configuration variables in phase scripts:
+Edit Terraform variables to adjust cluster size:
 
 ```bash
-# scripts/03-provision-infrastructure.sh
-CONTROL_NODES=3     # Control plane instances
-WORKER_NODES=4      # Worker node count
-
-# scripts/04-bootstrap-kubernetes.sh  
-KUBE_VERSION="1.33.4"           # Kubernetes version
-POD_NETWORK="10.244.0.0/16"     # Pod CIDR
-SERVICE_NETWORK="10.96.0.0/12"  # Service CIDR
+# terraform/terraform.tfvars
+control_plane_nodes = 3     # Control plane instances
+worker_nodes = 4            # Worker node count
 ```
 
-### DNS Configuration
+### Kubespray Configuration
 
-The system uses a modular DNS approach:
+Generate Kubespray inventory:
 
 ```bash
-# Deploy Kubernetes DNS configuration (coexists with existing infrastructure)
-python3 scripts/deploy-dns-config.py
+python3 scripts/generate-kubespray-inventory.py
 ```
 
-This creates DNS records for all Kubernetes components without affecting existing infrastructure. See [DNS_CONFIGURATION.md](docs/DNS_CONFIGURATION.md) for details.
+This creates optimized inventory configuration with:
+- Node role assignments
+- Network configuration
+- Performance optimizations
+- Security hardening
 
-### Proxmox Integration
+## Operations
 
-Proxmox integration is handled by the cluster-manager.py script. The setup includes:
-- Packer user creation with comprehensive permissions
-- API token generation and management
-- Cloud image preparation with qemu-guest-agent
-- Template creation from cloud images
-
-For manual configuration details, see `scripts/cluster-manager.py`.
-
-## Documentation
-
-This project includes comprehensive documentation:
-
-- **[ARCHITECTURE.md](ARCHITECTURE.md)** - Technology selection and design decisions  
-- **[docs/STATUS.md](docs/STATUS.md)** - Current implementation status and progress
-- **[docs/IP_ALLOCATION.md](docs/IP_ALLOCATION.md)** - Complete network allocation strategy
-- **[docs/DNS_CONFIGURATION.md](docs/DNS_CONFIGURATION.md)** - Modular DNS configuration approach
-- **[docs/README.md](docs/README.md)** - Documentation index and navigation
-
-See the [docs directory](docs/) for the complete documentation index.
-
-## Cluster Access
-
-### kubectl Configuration
+### Cluster Access
 
 ```bash
-# Configure local access
+# Configure kubectl access
 export KUBECONFIG=~/.kube/config-k8s-cluster
 kubectl get nodes
-kubectl get pods --all-namespaces
 ```
 
 ### Management Interfaces
@@ -281,7 +235,6 @@ kubectl get pods --all-namespaces
 ```bash
 kubectl proxy
 # Access: http://localhost:8001/api/v1/namespaces/kubernetes-dashboard/services/https:kubernetes-dashboard:/proxy/
-# Token: cat manifests/monitoring/dashboard-token.txt
 ```
 
 **Grafana Monitoring**
@@ -292,38 +245,24 @@ kubectl port-forward -n monitoring svc/prometheus-grafana 3000:80
 
 **Prometheus Metrics**
 ```bash
-kubectl port-forward -n monitoring svc/prometheus-kube-prometheus-prometheus 9090:9090  
+kubectl port-forward -n monitoring svc/prometheus-kube-prometheus-prometheus 9090:9090
 # Access: http://localhost:9090
 ```
 
-## Operations
-
-### Scaling Workers
+### Scaling Operations
 
 ```bash
-# Update worker count
-vim scripts/03-provision-infrastructure.sh  # Increase WORKER_NODES
+# Scale worker nodes
+vim terraform/terraform.tfvars  # Update worker_nodes count
 cd terraform && tofu apply
+
+# Add nodes to cluster
+kubectl get nodes
 ```
-
-### Backup Management
-
-Velero backup system is configured for:
-- Cluster state and configuration
-- Persistent volume snapshots  
-- Application-level backup scheduling
-
-### Monitoring and Alerting
-
-Pre-configured monitoring stack includes:
-- **Prometheus** - Metrics collection and alerting
-- **Grafana** - Visualization and dashboards
-- **AlertManager** - Alert routing and notification
-- **Node Exporter** - Hardware and OS metrics
 
 ## Troubleshooting
 
-### Deployment Issues
+### Common Issues
 
 **Infrastructure Provisioning Failures**
 ```bash
@@ -336,9 +275,9 @@ tofu destroy --auto-approve  # Clean slate if needed
 **Cluster Bootstrap Problems**
 ```bash
 # Check node connectivity
-ansible -i ansible/inventory.yml all -m ping
+ansible -i kubespray/inventory/proxmox-cluster/inventory.ini all -m ping
 
-# Verify Kubernetes prerequisites
+# Verify Kubernetes status
 kubectl get nodes
 kubectl get pods --all-namespaces
 ```
@@ -351,7 +290,7 @@ kubectl get pods -n kube-system -l k8s-app=kube-dns
 # Verify storage class
 kubectl get storageclass
 
-# Review resource constraints  
+# Review resource constraints
 kubectl describe nodes
 ```
 
@@ -359,40 +298,84 @@ kubectl describe nodes
 
 **Complete Environment Reset**
 ```bash
-python3 cluster-deploy.py cleanup  # Remove all resources
-rm ~/.kube-cluster/cluster-state.json  # Clear deployment state
-python3 cluster-deploy.py deploy   # Fresh deployment
+python3 scripts/deploy-fresh-cluster.py --force-recreate
 ```
 
-## Production Considerations
+**Partial Recovery**
+```bash
+# Infrastructure only
+python3 scripts/deploy-fresh-cluster.py --infrastructure-only
 
-### Security Hardening
-- RBAC enabled by default with principle of least privilege
-- Network policies enforced via Cilium
-- Pod security policies implemented
-- Regular security updates via automated patching
+# Kubernetes only
+python3 scripts/deploy-fresh-cluster.py --kubernetes-only
+```
 
-### Backup Strategy  
-- Automated daily cluster state backups via Velero
-- Persistent volume snapshot scheduling
-- Disaster recovery procedures documented
-- Regular backup restoration testing
+### Logs and Diagnostics
 
-### Performance Optimization
-- Resource requests and limits configured
-- Horizontal Pod Autoscaler (HPA) enabled
-- Cluster monitoring and capacity planning
-- Network performance tuning for high-throughput workloads
+**Deployment Logs**
+```bash
+# View deployment output
+python3 scripts/deploy-fresh-cluster.py --verify-only
+
+# Check Terraform state
+cd terraform && tofu show
+```
+
+**Cluster Diagnostics**
+```bash
+# Node status
+kubectl get nodes -o wide
+
+# System pods
+kubectl get pods -n kube-system
+
+# Cluster events
+kubectl get events --all-namespaces
+```
+
+## Contributing
+
+We welcome contributions to improve this automation framework. Please follow these guidelines:
+
+### Development Setup
+
+```bash
+# Clone repository
+git clone https://github.com/sddcinfo/kubernetes-cluster.git
+cd kubernetes-cluster
+
+# Create feature branch
+git checkout -b feature/your-enhancement
+```
+
+### Testing
+
+Before submitting changes:
+
+1. Test deployment in isolated environment
+2. Verify all phases complete successfully
+3. Validate cluster functionality
+4. Update documentation as needed
+
+### Pull Request Process
+
+1. Create descriptive commit messages
+2. Update README for significant changes
+3. Test deployment scenarios
+4. Submit pull request with detailed description
+
+## License
+
+This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
 
 ## Support
 
-For technical issues or deployment assistance:
+For technical support and questions:
 
-1. Review deployment logs in `scripts/deployment-state.json`
-2. Consult [ARCHITECTURE.md](ARCHITECTURE.md) for design decisions
-3. Check Proxmox and Kubernetes documentation for component-specific issues
-4. Engage enterprise support channels for production environments
+- **Issues**: [GitHub Issues](https://github.com/sddcinfo/kubernetes-cluster/issues)
+- **Documentation**: This README and inline code documentation
+- **Community**: Join discussions in project issues
 
 ---
 
-**Enterprise Kubernetes on Proxmox VE** - Production-ready automation for modern infrastructure.
+**Kubernetes Cluster Automation** - Production-ready infrastructure automation for modern container orchestration.
