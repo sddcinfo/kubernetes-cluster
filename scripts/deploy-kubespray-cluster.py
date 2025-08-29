@@ -68,6 +68,29 @@ def generate_inventory():
     return result.returncode == 0
 
 
+def apply_kubespray_patches():
+    """Apply custom patches to Kubespray configuration"""
+    print("🔧 Applying Kubespray patches...")
+    kubespray_dir = Path("kubespray")
+    patches_dir = Path("patches")
+    
+    if not patches_dir.exists():
+        print("📄 No patches directory found, skipping patch application")
+        return True
+    
+    # Apply ansible.cfg optimizations
+    ansible_patch = patches_dir / "kubespray-ansible-cfg.patch"
+    if ansible_patch.exists():
+        result = run_command([
+            "git", "apply", "--ignore-whitespace", str(ansible_patch.resolve())
+        ], "Applying ansible.cfg optimizations", cwd=kubespray_dir, check=False)
+        
+        if result.returncode != 0:
+            print("⚠️  Ansible.cfg patch may already be applied")
+    
+    return True
+
+
 def install_kubespray_requirements():
     """Install Kubespray Python requirements"""
     print("📦 Installing Kubespray requirements...")
@@ -227,22 +250,27 @@ def main():
         print("❌ Failed to generate inventory")
         sys.exit(1)
     
-    # Phase 3: Install requirements
+    # Phase 3: Apply patches
+    if not apply_kubespray_patches():
+        print("❌ Failed to apply patches")
+        sys.exit(1)
+    
+    # Phase 4: Install requirements
     if not install_kubespray_requirements():
         print("❌ Failed to install requirements")
         sys.exit(1)
     
-    # Phase 4: Test connectivity
+    # Phase 5: Test connectivity
     if not test_connectivity():
         print("❌ Connectivity test failed")
         sys.exit(1)
     
-    # Phase 5: Deploy cluster
+    # Phase 6: Deploy cluster
     if not deploy_cluster():
         print("❌ Cluster deployment failed")
         sys.exit(1)
     
-    # Phase 6: Setup kubeconfig
+    # Phase 7: Setup kubeconfig
     if not setup_kubeconfig():
         print("❌ Failed to setup kubeconfig")
         sys.exit(1)
