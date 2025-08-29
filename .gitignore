@@ -71,7 +71,7 @@ config-*
 
 # Binaries - exclude specific binary files in root
 kubectl
-terraform
+/terraform
 tofu
 scripts/kubectl
 scripts/terraform
