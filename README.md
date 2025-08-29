@@ -52,7 +52,56 @@ Future Expansion:     10.10.1.90-99
 DHCP Range:           10.10.1.100-200 (unchanged, for dynamic clients)
 ```
 
-For complete network allocation details, see [IP_ALLOCATION.md](docs/IP_ALLOCATION.md)
+## Network and DNS Configuration
+
+### Complete IP Allocation Strategy
+
+**Network**: 10.10.1.0/24 | **Gateway**: 10.10.1.1 | **Domain**: sddc.info
+
+#### Infrastructure Services (10.10.1.1-29)
+- `10.10.1.1` - gateway.sddc.info (dnsmasq/DHCP server)
+- `10.10.1.21-24` - node1-4 (Proxmox hypervisors)
+
+#### Kubernetes Cluster (10.10.1.30-99)
+- **Control Plane**: 10.10.1.30-39
+  - `10.10.1.30` - k8s-vip (Virtual IP for HA control plane)
+  - `10.10.1.31-33` - k8s-control-1 through k8s-control-3
+- **Worker Nodes**: 10.10.1.40-49
+  - `10.10.1.40-43` - k8s-worker-1 through k8s-worker-4
+  - `10.10.1.44-49` - Reserved for scaling
+- **MetalLB LoadBalancer Pool**: 10.10.1.50-79 (30 IPs for services)
+- **Infrastructure Services**: 10.10.1.80-89 (monitoring, logging, registry)
+- **Future Expansion**: 10.10.1.90-99
+
+#### Dynamic DHCP Range
+- `10.10.1.100-200` - DHCP pool for dynamic clients (unchanged)
+
+### DNS Configuration
+
+The system uses modular DNS configuration files:
+- **Base Infrastructure**: `/etc/dnsmasq.d/provisioning.conf` (existing)
+- **Kubernetes Cluster**: `/etc/dnsmasq.d/kubernetes.conf` (deployed by scripts)
+
+**DNS Records Created:**
+```
+# Control Plane
+k8s-vip.sddc.info          -> 10.10.1.30
+k8s-control-1.sddc.info    -> 10.10.1.31
+k8s-control-2.sddc.info    -> 10.10.1.32
+k8s-control-3.sddc.info    -> 10.10.1.33
+
+# Workers
+k8s-worker-1.sddc.info     -> 10.10.1.40
+k8s-worker-2.sddc.info     -> 10.10.1.41
+k8s-worker-3.sddc.info     -> 10.10.1.42
+k8s-worker-4.sddc.info     -> 10.10.1.43
+
+# Services (MetalLB Pool)
+ingress.k8s.sddc.info      -> 10.10.1.50
+prometheus.k8s.sddc.info   -> 10.10.1.51
+grafana.k8s.sddc.info      -> 10.10.1.52
+registry.k8s.sddc.info     -> 10.10.1.53
+```
 
 ## Prerequisites
 
@@ -206,7 +255,7 @@ The Kubernetes cluster deployment framework is fully operational with the follow
 - **Production Ready**: Comprehensive configuration review completed and infrastructure validated
 - **Latest Updates**: Major Kubespray component updates integrated (Aug 2025) with improved reliability
 
-For detailed implementation progress, see [STATUS.md](docs/STATUS.md)
+Implementation is complete and production-ready with comprehensive automation.
 
 ### Component-Specific Deployment Workflow
 
@@ -301,7 +350,7 @@ The system uses a modular DNS approach:
 python3 scripts/deploy-dns-config.py
 ```
 
-This creates DNS records for all Kubernetes components without affecting existing infrastructure. See [DNS_CONFIGURATION.md](docs/DNS_CONFIGURATION.md) for details.
+This creates DNS records for all Kubernetes components without affecting existing infrastructure.
 
 ### Proxmox Integration
 
@@ -317,13 +366,9 @@ For manual configuration details, see `scripts/cluster-manager.py`.
 
 This project includes comprehensive documentation:
 
-- **[ARCHITECTURE.md](ARCHITECTURE.md)** - Technology selection and design decisions  
-- **[docs/STATUS.md](docs/STATUS.md)** - Current implementation status and progress
-- **[docs/IP_ALLOCATION.md](docs/IP_ALLOCATION.md)** - Complete network allocation strategy
-- **[docs/DNS_CONFIGURATION.md](docs/DNS_CONFIGURATION.md)** - Modular DNS configuration approach
-- **[docs/README.md](docs/README.md)** - Documentation index and navigation
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** - Technology selection and design decisions
 
-See the [docs directory](docs/) for the complete documentation index.
+All network allocation, DNS configuration, and deployment details are documented in this README.md file for easy reference.
 
 ## Cluster Access
 
