@@ -46,9 +46,6 @@ argument_specs:
             default: true
           wait_timeout:
             type: str
-          atomic:
-            type: bool
-            default: true
 
       repositories:
         type: list
@@ -94,6 +91,3 @@ argument_specs:
           wait_timeout:
             type: str
             default: "5m"
-          atomic:
-            type: bool
-            default: true

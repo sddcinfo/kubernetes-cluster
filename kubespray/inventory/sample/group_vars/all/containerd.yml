@@ -50,10 +50,8 @@
 #     - host: https://registry-1.docker.io
 #       capabilities: ["pull", "resolve"]
 #       skip_verify: false
-#       header:
-#         Authorization: "Basic XXX"
 
-# containerd_max_container_log_line_size: 16384
+# containerd_max_container_log_line_size: -1
 
 # containerd_registry_auth:
 #   - registry: 10.0.0.2:5000

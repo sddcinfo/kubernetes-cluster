@@ -61,12 +61,12 @@ gcloud compute networks subnets create kubernetes \
 #### Firewall Rules
 
 Create a firewall rule that allows internal communication across all protocols.
-It is important to note that the vxlan (udp) protocol has to be allowed in order for
+It is important to note that the vxlan protocol has to be allowed in order for
 the calico (see later) networking plugin to work.
 
 ```ShellSession
 gcloud compute firewall-rules create kubernetes-the-kubespray-way-allow-internal \
-  --allow tcp,udp,icmp \
+  --allow tcp,udp,icmp,vxlan \
   --network kubernetes-the-kubespray-way \
   --source-ranges 10.240.0.0/24
 ```
@@ -88,7 +88,7 @@ cluster.
 
 ### Compute Instances
 
-The compute instances in this lab will be provisioned using [Ubuntu Server](https://www.ubuntu.com/server) 24.04.
+The compute instances in this lab will be provisioned using [Ubuntu Server](https://www.ubuntu.com/server) 18.04.
 Each compute instance will be provisioned with a fixed private IP address and
  a public IP address (that can be fixed - see [guide](https://cloud.google.com/compute/docs/ip-addresses/reserve-static-external-ip-address)).
 Using fixed public IP addresses has the advantage that our cluster node
@@ -103,7 +103,7 @@ for i in 0 1 2; do
     --async \
     --boot-disk-size 200GB \
     --can-ip-forward \
-    --image-family ubuntu-2404-lts-amd64 \
+    --image-family ubuntu-1804-lts \
     --image-project ubuntu-os-cloud \
     --machine-type e2-standard-2 \
     --private-network-ip 10.240.0.1${i} \
@@ -124,7 +124,7 @@ for i in 0 1 2; do
     --async \
     --boot-disk-size 200GB \
     --can-ip-forward \
-    --image-family ubuntu-2404-lts-amd64 \
+    --image-family ubuntu-1804-lts \
     --image-project ubuntu-os-cloud \
     --machine-type e2-standard-2 \
     --private-network-ip 10.240.0.2${i} \
@@ -212,15 +212,17 @@ Copy ``inventory/sample`` as ``inventory/mycluster``:
 cp -rfp inventory/sample inventory/mycluster
 ```
 
-Update the sample Ansible inventory file with ip given by gcloud:
+Update Ansible inventory file with inventory builder:
 
 ```ShellSession
-gcloud compute instances list --filter="tags.items=kubernetes-the-kubespray-way"
+declare -a IPS=($(gcloud compute instances list --filter="tags.items=kubernetes-the-kubespray-way" --format="value(EXTERNAL_IP)"  | tr '\n' ' '))
+CONFIG_FILE=inventory/mycluster/hosts.yaml python3 contrib/inventory_builder/inventory.py ${IPS[@]}
 ```
 
-Open `inventory/mycluster/inventory.ini` file and add it so
-that controller-0, controller-1 and controller-2 in the `kube_control_plane` group and
-worker-0, worker-1 and worker-2 in the `kube_node` group. Add respective `ip` to the respective local VPC IP for each node.
+Open the generated `inventory/mycluster/hosts.yaml` file and adjust it so
+that controller-0, controller-1 and controller-2 are control plane nodes and
+worker-0, worker-1 and worker-2 are worker nodes. Also update the `ip` to the respective local VPC IP and
+remove the `access_ip`.
 
 The main configuration for the cluster is stored in
 `inventory/mycluster/group_vars/k8s_cluster/k8s_cluster.yml`. In this file we
@@ -240,7 +242,7 @@ the kubernetes cluster, just change the 'false' to 'true' for
 Now we will deploy the configuration:
 
 ```ShellSession
-ansible-playbook -i inventory/mycluster/ -u $USERNAME -b -v --private-key=~/.ssh/id_rsa cluster.yml
+ansible-playbook -i inventory/mycluster/hosts.yaml -u $USERNAME -b -v --private-key=~/.ssh/id_rsa cluster.yml
 ```
 
 Ansible will now execute the playbook, this can take up to 20 minutes.
@@ -594,7 +596,7 @@ If you want to keep the VMs and just remove the cluster state, you can simply
  run another Ansible playbook:
 
 ```ShellSession
-ansible-playbook -i inventory/mycluster/ -u $USERNAME -b -v --private-key=~/.ssh/id_rsa reset.yml
+ansible-playbook -i inventory/mycluster/hosts.yaml -u $USERNAME -b -v --private-key=~/.ssh/id_rsa reset.yml
 ```
 
 Resetting the cluster to the VMs original state usually takes about a couple

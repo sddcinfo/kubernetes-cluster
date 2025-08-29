@@ -90,7 +90,7 @@ containerd_registries_mirrors:
         capabilities: ["pull", "resolve"]
         skip_verify: false
 
-containerd_max_container_log_line_size: 16384
+containerd_max_container_log_line_size: -1
 
 crio_registries_mirrors:
   - prefix: docker.io

@@ -8,7 +8,7 @@
   tags:
     - kubeadm
   when:
-    - not ('kube_control_plane' in group_names)
+    - not inventory_hostname in groups['kube_control_plane']
 
 - name: Install | Copy kubelet binary from download dir
   copy:

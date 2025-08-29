@@ -9,7 +9,7 @@
   loop_control:
     loop_var: delegate_host_to_write_cacert
   when:
-    - ('k8s_cluster' in group_names)
+    - inventory_hostname in groups['k8s_cluster']
     - cinder_cacert is defined
     - cinder_cacert | length > 0
 

@@ -71,6 +71,9 @@
    [kube_node:children]
    kubenode
 
+   [k8s_cluster:children]
+   kubernetes
+
    [etcd:children]
    kubemaster
    kubemaster-ha
@@ -78,6 +81,9 @@
    [kube_control_plane:children]
    kubemaster
    kubemaster-ha
+
+   [kubespray:children]
+   kubernetes
    ```
 
 * Last entry here needed to apply kubespray.yml config file, renamed from all.yml of kubespray project.

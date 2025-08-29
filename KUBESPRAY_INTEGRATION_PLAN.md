@@ -139,7 +139,7 @@ kube_network_plugin: cilium
 
 # Proxmox-specific
 ansible_user: ubuntu
-ansible_ssh_private_key_file: /home/sysadmin/.ssh/sysladmin_automation_key
+ansible_ssh_private_key_file: /home/sysadmin/.ssh/sysadmin_automation_key
 
 # High Availability
 kube_apiserver_address: "{{ hostvars['k8s-control-1']['ip'] | default(hostvars['k8s-control-1']['ansible_default_ipv4']['address']) }}"

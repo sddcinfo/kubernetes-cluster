@@ -1,30 +1,40 @@
 ---
 role_name_check: 1
+driver:
+  name: vagrant
+  provider:
+    name: libvirt
 platforms:
-  - cloud_image: ubuntu-2404
-    name: ubuntu24
-    vm_cpu_cores: 1
-    vm_memory: 1024
-    node_groups:
+  - name: ubuntu20
+    box: generic/ubuntu2004
+    cpus: 1
+    memory: 1024
+    groups:
       - kube_control_plane
       - kube_node
       - k8s_cluster
-  - cloud_image: debian-12
-    name: debian12
-    vm_cpu_cores: 1
-    vm_memory: 1024
-    node_groups:
+    provider_options:
+      driver: kvm
+  - name: debian11
+    box: generic/debian11
+    cpus: 1
+    memory: 1024
+    groups:
       - kube_control_plane
       - kube_node
       - k8s_cluster
-  - cloud_image: almalinux-9
-    name: almalinux9
-    vm_cpu_cores: 1
-    vm_memory: 1024
-    node_groups:
+    provider_options:
+      driver: kvm
+  - name: almalinux8
+    box: almalinux/8
+    cpus: 1
+    memory: 1024
+    groups:
       - kube_control_plane
       - kube_node
       - k8s_cluster
+    provider_options:
+      driver: kvm
 provisioner:
   name: ansible
   env:
@@ -33,8 +43,5 @@ provisioner:
     defaults:
       callbacks_enabled: profile_tasks
       timeout: 120
-  playbooks:
-    create: ../../../../../tests/cloud_playbooks/create-kubevirt.yml
-    prepare: ../../../molecule/prepare.yml
 verifier:
-  name: ansible
+  name: testinfra

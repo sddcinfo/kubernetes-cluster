@@ -89,11 +89,8 @@ node1 ansible_ssh_host=95.54.0.12 local_as=xxxxxx
 
 Peers can be defined using the `peers` variable (see docs/calico_peer_example examples).
 In order to define global peers, the `peers` variable can be defined in group_vars with the "scope" attribute of each global peer set to "global".
-In order to define peers on a per node basis, the `peers` variable must be defined in hostvars or group_vars with the "scope" attribute unset or set to "node".
-
+In order to define peers on a per node basis, the `peers` variable must be defined in hostvars.
 NB: Ansible's `hash_behaviour` is by default set to "replace", thus defining both global and per node peers would end up with having only per node peers. If having both global and per node peers defined was meant to happen, global peers would have to be defined in hostvars for each host (as well as per node peers)
-
-NB²: Peers definition at node scope can be customized with additional fields `filters`, `sourceAddress` and `numAllowedLocalASNumbers` (see <https://docs.tigera.io/calico/latest/reference/resources/bgppeer> for details)
 
 Since calico 3.4, Calico supports advertising Kubernetes service cluster IPs over BGP, just as it advertises pod IPs.
 This can be enabled by setting the following variable as follow in group_vars (k8s_cluster/k8s-net-calico.yml)
@@ -130,7 +127,8 @@ recommended here:
 You need to edit your inventory and add:
 
 * `calico_rr` group with nodes in it. `calico_rr` can be combined with
-  `kube_node` and/or `kube_control_plane`.
+  `kube_node` and/or `kube_control_plane`. `calico_rr` group also must be a child
+   group of `k8s_cluster` group.
 * `cluster_id` by route reflector node/group (see details [here](https://hub.docker.com/r/calico/routereflector/))
 
 Here's an example of Kubespray inventory with standalone route reflectors:
@@ -158,6 +156,11 @@ node2
 node3
 node4
 node5
+
+[k8s_cluster:children]
+kube_node
+kube_control_plane
+calico_rr
 
 [calico_rr]
 rr0
@@ -377,7 +380,7 @@ To clean up any ipvs leftovers:
 
 ### Calico access to the kube-api
 
-Calico node, typha and kube-controllers need to be able to talk to the kubernetes API. Please reference the [Enabling eBPF Calico Docs](https://docs.tigera.io/calico/latest/operations/ebpf/enabling-ebpf) for guidelines on how to do this.
+Calico node, typha and kube-controllers need to be able to talk to the kubernetes API. Please reference the [Enabling eBPF Calico Docs](https://docs.projectcalico.org/maintenance/ebpf/enabling-bpf) for guidelines on how to do this.
 
 Kubespray sets up the `kubernetes-services-endpoint` configmap based on the contents of the `loadbalancer_apiserver` inventory variable documented in [HA Mode](/docs/operations/ha-mode.md).
 

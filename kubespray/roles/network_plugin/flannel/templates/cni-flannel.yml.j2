@@ -30,14 +30,12 @@ data:
     }
   net-conf.json: |
     {
-{% if ipv4_stack %}
       "Network": "{{ kube_pods_subnet }}",
       "EnableIPv4": true,
-{% endif %}
-{% if ipv6_stack %}
+{%   if enable_dual_stack_networks %}
       "EnableIPv6": true,
       "IPv6Network": "{{ kube_pods_subnet_ipv6 }}",
-{% endif %}
+{%   endif %}
       "Backend": {
         "Type": "{{ flannel_backend_type }}"{% if flannel_backend_type == "vxlan" %},
         "VNI": {{ flannel_vxlan_vni }},

@@ -12,12 +12,10 @@ skip_list:
   # (Disabled in June 2021)
   - 'role-name'
 
-  # [var-naming]
+  # [var-naming] "defaults/main.yml" File defines variable 'apiVersion' that violates variable naming standards
   # In Kubespray we use variables that use camelCase to match their k8s counterparts
   # (Disabled in June 2021)
-  - 'var-naming[pattern]'
-  # Variables names from within roles in kubespray don't need role name as a prefix
-  - 'var-naming[no-role-prefix]'
+  - 'var-naming'
 
   # [fqcn-builtins]
   # Roles in kubespray don't need fully qualified collection names
@@ -39,9 +37,3 @@ exclude_paths:
   - tests/files/custom_cni/cilium.yaml
   - venv
   - .github
-  - .ansible
-  - .cache
-  - .gitlab-ci.yml
-  - .gitlab-ci
-mock_modules:
-  - gluster.gluster.gluster_volume

@@ -50,9 +50,9 @@ def check_prerequisites():
         sys.exit(1)
     
     # Check if SSH key exists
-    ssh_key = Path("/home/sysadmin/.ssh/sysladmin_automation_key")
+    ssh_key = Path("/home/sysadmin/.ssh/sysadmin_automation_key")
     if not ssh_key.exists():
-        print("❌ SSH key not found: /home/sysadmin/.ssh/sysladmin_automation_key")
+        print("❌ SSH key not found: /home/sysadmin/.ssh/sysadmin_automation_key")
         sys.exit(1)
     
     print("✅ Prerequisites check passed")
@@ -95,6 +95,7 @@ def install_kubespray_requirements():
     """Install Kubespray Python requirements"""
     print("📦 Installing Kubespray requirements...")
     kubespray_dir = Path("kubespray")
+    venv_dir = kubespray_dir / "venv"
     
     # Check if requirements file exists
     requirements_file = kubespray_dir / "requirements.txt"
@@ -102,9 +103,26 @@ def install_kubespray_requirements():
         print("❌ Kubespray requirements.txt not found")
         return False
     
+    # Create virtual environment if it doesn't exist
+    if not venv_dir.exists():
+        run_command(
+            ["python3", "-m", "venv", "venv"],
+            "Creating Python virtual environment",
+            cwd=kubespray_dir
+        )
+    
+    # Install requirements in virtual environment
+    pip_path = venv_dir / "bin" / "pip"
+    
+    # Check if Ansible is already installed
+    ansible_path = venv_dir / "bin" / "ansible"
+    if ansible_path.exists():
+        print("✅ Kubespray dependencies already installed")
+        return True
+    
     run_command(
-        ["pip3", "install", "-r", "requirements.txt"],
-        "Installing Kubespray Python dependencies",
+        [str(pip_path), "install", "-r", "requirements.txt"],
+        "Installing Kubespray Python dependencies in virtual environment",
         cwd=kubespray_dir
     )
     return True
@@ -114,10 +132,12 @@ def test_connectivity():
     """Test SSH connectivity to all nodes"""
     print("🔗 Testing SSH connectivity to cluster nodes...")
     kubespray_dir = Path("kubespray")
+    venv_dir = kubespray_dir / "venv"
+    ansible_path = venv_dir / "bin" / "ansible"
     inventory_file = kubespray_dir / "inventory" / "proxmox-cluster" / "inventory.ini"
     
     result = run_command(
-        ["ansible", "-i", str(inventory_file), "all", "-m", "ping"],
+        [str(ansible_path), "-i", str(inventory_file), "all", "-m", "ping"],
         "Testing connectivity to all nodes",
         cwd=kubespray_dir,
         check=False
@@ -135,13 +155,15 @@ def deploy_cluster():
     """Deploy Kubernetes cluster using Kubespray"""
     print("🚀 Deploying Kubernetes cluster with Kubespray...")
     kubespray_dir = Path("kubespray")
+    venv_dir = kubespray_dir / "venv"
+    ansible_playbook_path = venv_dir / "bin" / "ansible-playbook"
     inventory_file = kubespray_dir / "inventory" / "proxmox-cluster" / "inventory.ini"
     
     start_time = time.time()
     
     result = run_command(
         [
-            "ansible-playbook", 
+            str(ansible_playbook_path), 
             "-i", str(inventory_file),
             "-b",
             "cluster.yml"
@@ -163,11 +185,13 @@ def setup_kubeconfig():
     
     # Source kubeconfig from first control plane node
     kubespray_dir = Path("kubespray")
+    venv_dir = kubespray_dir / "venv"
+    ansible_path = venv_dir / "bin" / "ansible"
     inventory_file = kubespray_dir / "inventory" / "proxmox-cluster" / "inventory.ini"
     
     # Get admin.conf from first control plane node
     result = run_command([
-        "ansible", 
+        str(ansible_path), 
         "-i", str(inventory_file),
         "kube_control_plane[0]",
         "-m", "fetch",

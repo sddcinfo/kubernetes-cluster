@@ -5,6 +5,11 @@
     - facts
     - kubelet
 
+- name: Pre-upgrade kubelet
+  import_tasks: pre_upgrade.yml
+  tags:
+    - kubelet
+
 - name: Ensure /var/lib/cni exists
   file:
     path: /var/lib/cni
@@ -19,7 +24,7 @@
 - name: Install kube-vip
   import_tasks: loadbalancer/kube-vip.yml
   when:
-    - ('kube_control_plane' in group_names)
+    - is_kube_master
     - kube_vip_enabled
   tags:
     - kube-vip
@@ -27,7 +32,7 @@
 - name: Install nginx-proxy
   import_tasks: loadbalancer/nginx-proxy.yml
   when:
-    - ('kube_control_plane' not in group_names) or (kube_apiserver_bind_address != '::')
+    - not is_kube_master or kube_apiserver_bind_address != '0.0.0.0'
     - loadbalancer_apiserver_localhost
     - loadbalancer_apiserver_type == 'nginx'
   tags:
@@ -36,7 +41,7 @@
 - name: Install haproxy
   import_tasks: loadbalancer/haproxy.yml
   when:
-    - ('kube_control_plane' not in group_names) or (kube_apiserver_bind_address != '::')
+    - not is_kube_master or kube_apiserver_bind_address != '0.0.0.0'
     - loadbalancer_apiserver_localhost
     - loadbalancer_apiserver_type == 'haproxy'
   tags:
@@ -63,6 +68,8 @@
   changed_when: false
   check_mode: false
 
+# TODO: Remove once upstream issue is fixed
+# https://github.com/ansible-collections/community.general/issues/7717
 - name: Verify br_netfilter module path exists
   file:
     path: "{{ item }}"
@@ -123,23 +130,59 @@
     persistent: present
   register: modprobe_conntrack_module
   ignore_errors: true  # noqa ignore-errors
-  loop:
-    - nf_conntrack
-    - nf_conntrack_ipv4
+  loop: "{{ conntrack_modules }}"
   when:
     - kube_proxy_mode == 'ipvs'
-    - modprobe_conntrack_module is not defined or modprobe_conntrack_module is ansible.builtin.failed  # loop until first success
+    - "(modprobe_conntrack_module|default({'rc': 1})).rc != 0"  # loop until first success
   tags:
     - kube-proxy
 
-- name: Modprobe Kernel Module for nftables
-  community.general.modprobe:
-    name: "nf_tables"
-    state: present
-    persistent: present
-  when: kube_proxy_mode == 'nftables'
+- name: Check cloud provider credentials
+  include_tasks: "cloud-credentials/{{ cloud_provider }}-credential-check.yml"
+  when:
+    - cloud_provider is defined
+    - cloud_provider in [ 'openstack', 'azure', 'vsphere' ]
   tags:
-    - kube-proxy
+    - cloud-provider
+    - facts
+
+- name: Test if openstack_cacert is a base64 string
+  set_fact:
+    openstack_cacert_is_base64: "{% if openstack_cacert is search('^([A-Za-z0-9+/]{4})*([A-Za-z0-9+/]{3}= | [A-Za-z0-9+/]{2}==)?$') %}true{% else %}false{% endif %}"
+  when:
+    - cloud_provider is defined
+    - cloud_provider == 'openstack'
+    - openstack_cacert is defined
+    - openstack_cacert | length > 0
+
+
+- name: Write cacert file
+  copy:
+    src: "{{ openstack_cacert if not openstack_cacert_is_base64 else omit }}"
+    content: "{{ openstack_cacert | b64decode if openstack_cacert_is_base64 else omit }}"
+    dest: "{{ kube_config_dir }}/openstack-cacert.pem"
+    group: "{{ kube_cert_group }}"
+    mode: "0640"
+  when:
+    - cloud_provider is defined
+    - cloud_provider == 'openstack'
+    - openstack_cacert is defined
+    - openstack_cacert | length > 0
+  tags:
+    - cloud-provider
+
+- name: Write cloud-config
+  template:
+    src: "cloud-configs/{{ cloud_provider }}-cloud-config.j2"
+    dest: "{{ kube_config_dir }}/cloud_config"
+    group: "{{ kube_cert_group }}"
+    mode: "0640"
+  when:
+    - cloud_provider is defined
+    - cloud_provider in [ 'openstack', 'azure', 'vsphere', 'aws', 'gce' ]
+  notify: Node | restart kubelet
+  tags:
+    - cloud-provider
 
 - name: Install kubelet
   import_tasks: kubelet.yml
