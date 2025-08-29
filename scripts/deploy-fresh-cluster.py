@@ -36,22 +36,69 @@ class ClusterDeployer:
         self.skip_terraform_reset = skip_terraform_reset
         self.force_recreate = force_recreate
         
-    def run_command(self, command, description, cwd=None, check=True, timeout=None):
-        """Run a command with proper error handling"""
+    def run_command(self, command, description, cwd=None, check=True, timeout=None, log_file=None):
+        """Run a command with proper error handling and optional logging"""
         print(f"🔄 {description}...")
         try:
-            result = subprocess.run(
-                command,
-                cwd=cwd,
-                capture_output=True,
-                text=True,
-                check=check,
-                timeout=timeout,
-                shell=isinstance(command, str)
-            )
-            if result.stdout and not result.stdout.isspace():
-                print(f"   {result.stdout.strip()}")
-            return result
+            if log_file:
+                # For long-running commands with logging, use Popen for real-time output
+                import os
+                with open(log_file, 'w') as log_f:
+                    log_f.write(f"=== {description} ===\n")
+                    log_f.write(f"Command: {' '.join(command) if isinstance(command, list) else command}\n")
+                    log_f.write(f"Working directory: {cwd}\n")
+                    log_f.write("=" * 50 + "\n\n")
+                    log_f.flush()
+                    
+                    process = subprocess.Popen(
+                        command,
+                        cwd=cwd,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        text=True,
+                        shell=isinstance(command, str)
+                    )
+                    
+                    # Read output line by line and write to both console and log
+                    while True:
+                        output = process.stdout.readline()
+                        if output == '' and process.poll() is not None:
+                            break
+                        if output:
+                            # Write to log file
+                            log_f.write(output)
+                            log_f.flush()
+                            # Show periodic progress indicators
+                            if any(keyword in output.lower() for keyword in ['task', 'play', 'gathering facts', 'setup', 'failed', 'ok:', 'changed:']):
+                                print(f"   {output.strip()}")
+                    
+                    returncode = process.poll()
+                    
+                    # Create a result object similar to subprocess.run
+                    class Result:
+                        def __init__(self, returncode):
+                            self.returncode = returncode
+                            self.stdout = ""
+                            self.stderr = ""
+                    
+                    result = Result(returncode)
+                    if returncode != 0 and check:
+                        raise subprocess.CalledProcessError(returncode, command)
+                    return result
+            else:
+                # Standard execution for short commands
+                result = subprocess.run(
+                    command,
+                    cwd=cwd,
+                    capture_output=True,
+                    text=True,
+                    check=check,
+                    timeout=timeout,
+                    shell=isinstance(command, str)
+                )
+                if result.stdout and not result.stdout.isspace():
+                    print(f"   {result.stdout.strip()}")
+                return result
         except subprocess.TimeoutExpired:
             print(f"⏱️ Command timed out after {timeout} seconds")
             return None
@@ -452,7 +499,8 @@ etcd_election_timeout: "2500"
             [str(ansible_path), "-i", str(inventory_file), "all", "-m", "ping"],
             "Testing Ansible connectivity",
             cwd=self.kubespray_dir,
-            check=False
+            check=False,
+            timeout=30  # 30 second timeout for connectivity test
         )
         
         if result.returncode != 0:
@@ -471,22 +519,31 @@ etcd_election_timeout: "2500"
         ansible_playbook_path = self.venv_dir / "bin" / "ansible-playbook"
         inventory_file = self.kubespray_dir / "inventory" / "proxmox-cluster" / "inventory.ini"
         
+        # Create log file with timestamp
+        log_file = self.project_dir / f"kubespray-deployment-{int(time.time())}.log"
+        print(f"📋 Deployment log: {log_file}")
+        
         start_time = time.time()
         
+        # Run with verbose output and log to file
         result = self.run_command(
-            [str(ansible_playbook_path), "-i", str(inventory_file), "-b", "cluster.yml"],
-            "Running Kubespray deployment",
+            [str(ansible_playbook_path), "-i", str(inventory_file), "-b", "-v", "cluster.yml"],
+            "Running Kubespray deployment (check log file for detailed progress)",
             cwd=self.kubespray_dir,
-            check=False
+            check=False,
+            timeout=3600,  # 1 hour timeout
+            log_file=str(log_file)
         )
         
         duration = int(time.time() - start_time)
         
         if result.returncode != 0:
             print(f"❌ Kubernetes deployment failed after {duration // 60}m {duration % 60}s")
+            print(f"📋 Check deployment log for details: {log_file}")
             sys.exit(1)
             
         print(f"✅ Kubernetes deployment completed in {duration // 60}m {duration % 60}s")
+        print(f"📋 Full deployment log: {log_file}")
         
     def setup_kubeconfig(self):
         """Setup kubeconfig for cluster access"""
