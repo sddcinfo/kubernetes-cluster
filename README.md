@@ -42,7 +42,7 @@ This solution provides comprehensive automation for deploying and managing produ
 |-----------|------------|---------|---------|
 | **Infrastructure** | OpenTofu | 1.7+ | Declarative infrastructure provisioning |
 | **Kubernetes** | Kubespray | 2.26.0 | Production-ready cluster deployment |
-| **Container Network** | Cilium | 1.15.4+ | eBPF-based CNI with advanced security |
+| **Container Network** | Calico | 3.26+ | BGP-based CNI with proven reliability |
 | **Storage** | Proxmox CSI | Latest | Dynamic persistent volume provisioning |
 | **Load Balancing** | MetalLB | Latest | Bare-metal LoadBalancer implementation |
 | **Orchestration** | Python | 3.11+ | Deployment coordination and automation |
@@ -56,7 +56,7 @@ The solution deploys a production-grade Kubernetes cluster with the following to
 - **Control Plane**: 3 nodes with stacked etcd for high availability
 - **Worker Nodes**: 4+ nodes with configurable scaling
 - **Load Balancer**: HAProxy + Keepalived for control plane access
-- **Network**: Cilium CNI with eBPF dataplane
+- **Network**: Calico CNI with BGP routing
 - **Storage**: Proxmox CSI with Ceph RBD integration
 
 ### Network Topology
