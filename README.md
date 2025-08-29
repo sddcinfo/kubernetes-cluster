@@ -154,24 +154,17 @@ The deployment follows a structured approach:
 
 ### Step 0: Setup and Create VM Templates (Required)
 
-Before deploying the Kubernetes cluster, set up configuration and create templates:
+Before deploying the Kubernetes cluster, create VM templates using the ansible-provisioning-server repository:
 
 ```bash
-# 1. Setup shared configuration (on ansible-provisioning-server host)
+# On ansible-provisioning-server host
 cd /path/to/ansible-provisioning-server
-./scripts/bootstrap-config.sh
-
-# 2. Create VM templates
 python3 scripts/template-manager.py --create-templates
-
-# 3. Verify templates are created
-python3 scripts/template-manager.py --verify
 ```
 
 This creates:
-- Configuration at `~/proxmox-config/templates.yaml` (shared between repos)
 - Template ID 9000: Ubuntu 24.04 base template  
-- Template ID 9001: Ubuntu 24.04 with Kubernetes 1.33.4 pre-installed
+- Template ID 9001: Ubuntu 24.04 with Kubernetes pre-installed
 
 ### Quick Start
 
@@ -180,13 +173,8 @@ This creates:
 git clone https://github.com/sddcinfo/kubernetes-cluster.git
 cd kubernetes-cluster
 
-# Phase 1-2: Foundation and template creation
-python3 scripts/cluster-manager.py --setup-and-create
-
-# Phase 3-5: Complete infrastructure and Kubernetes deployment
-python3 scripts/deploy-dns-config.py          # Deploy DNS configuration
-cd terraform && terraform apply               # Deploy VMs with OpenTofu
-python3 scripts/deploy-kubespray-cluster.py   # Deploy Kubernetes with Kubespray
+# Complete fresh deployment automation
+python3 scripts/deploy-fresh-cluster.py
 ```
 
 ### Enhanced Fresh Cluster Deployment
@@ -232,23 +220,6 @@ python3 scripts/deploy-fresh-cluster.py --force-recreate      # Force complete r
 - **Latest Updates** - Kubespray updated to v2.26.0 with enhanced component stability
 ```
 
-### **100% Hands-Off Automation**
-
-The cluster-manager now provides **completely automated template creation** with zero manual intervention:
-
-```bash
-# From clean slate to production-ready templates in ~4 minutes
-python3 scripts/cluster-manager.py --setup-and-create
-
-# Features:
-# - Automatic prerequisite validation
-# - Terraform user setup with proper permissions  
-# - Cloud image preparation with EFI boot support
-# - Base template creation (ubuntu-base-template, ID 9000)
-# - Kubernetes template with K8s v1.33.4 (ubuntu-k8s-template, ID 9001)
-# - Robust error handling and retry mechanisms
-# - Graceful VM management and template conversion
-```
 
 ### Implementation Status
 
@@ -294,58 +265,18 @@ python3 scripts/deploy-fresh-cluster.py --force-recreate
 python3 scripts/deploy-fresh-cluster.py --help
 ```
 
-### Legacy Individual Phase Execution
 
-For granular control or troubleshooting using the original scripts:
-
-```bash
-# Phase 1: Foundation setup only
-python3 scripts/cluster-manager.py --setup-foundation
-# Phase 2: Template creation only (requires foundation)
-python3 scripts/cluster-manager.py --create-templates
-# Phase 3-5: Infrastructure and Kubernetes deployment
-python3 scripts/deploy-dns-config.py          # Deploy DNS configuration
-cd terraform && terraform apply               # Deploy VMs with OpenTofu
-python3 scripts/deploy-kubespray-cluster.py   # Deploy Kubernetes with Kubespray
-```
-
-### Deployment Management
-
-```bash
-# Check deployment status
-python3 cluster-deploy.py status
-
-# Deploy single node cluster
-python3 cluster-deploy.py deploy --profile single-node
-
-# Deploy HA cluster (default)
-python3 cluster-deploy.py deploy --profile ha-cluster
-
-# Deploy specific components
-python3 cluster-deploy.py deploy --components foundation template-manager infrastructure
-
-# Force redeploy existing components
-python3 cluster-deploy.py deploy --force
-
-# Clean up all resources
-python3 cluster-deploy.py cleanup
-```
 
 ## Configuration
 
 ### Cluster Sizing
 
-Edit configuration variables in phase scripts:
+Edit configuration in the Terraform variables:
 
 ```bash
-# scripts/03-provision-infrastructure.sh
-CONTROL_NODES=3     # Control plane instances
-WORKER_NODES=4      # Worker node count
-
-# scripts/04-bootstrap-kubernetes.sh  
-KUBE_VERSION="1.33.4"           # Kubernetes version
-POD_NETWORK="10.244.0.0/16"     # Pod CIDR
-SERVICE_NETWORK="10.96.0.0/12"  # Service CIDR
+# terraform/terraform.tfvars
+control_plane_nodes = 3     # Control plane instances
+worker_nodes = 4            # Worker node count
 ```
 
 ### DNS Configuration
@@ -361,13 +292,7 @@ This creates DNS records for all Kubernetes components without affecting existin
 
 ### Proxmox Integration
 
-Proxmox integration is handled by the cluster-manager.py script. The setup includes:
-- Packer user creation with comprehensive permissions
-- API token generation and management
-- Cloud image preparation with qemu-guest-agent
-- Template creation from cloud images
-
-For manual configuration details, see `scripts/cluster-manager.py`.
+Proxmox integration is handled by the template-manager.py script in the ansible-provisioning-server repository.
 
 ## Documentation
 
@@ -415,7 +340,7 @@ kubectl port-forward -n monitoring svc/prometheus-kube-prometheus-prometheus 909
 
 ```bash
 # Update worker count
-vim scripts/03-provision-infrastructure.sh  # Increase WORKER_NODES
+vim terraform/terraform.tfvars  # Increase worker_nodes
 cd terraform && tofu apply
 ```
 
@@ -472,9 +397,7 @@ kubectl describe nodes
 
 **Complete Environment Reset**
 ```bash
-python3 cluster-deploy.py cleanup  # Remove all resources
-rm ~/.kube-cluster/cluster-state.json  # Clear deployment state
-python3 cluster-deploy.py deploy   # Fresh deployment
+python3 scripts/deploy-fresh-cluster.py --force-recreate
 ```
 
 ## Production Considerations
@@ -501,7 +424,7 @@ python3 cluster-deploy.py deploy   # Fresh deployment
 
 For technical issues or deployment assistance:
 
-1. Review deployment logs in `scripts/deployment-state.json`
+1. Review deployment logs from the deploy-fresh-cluster.py output
 2. Review technology selection rationale in the Technology Stack section above
 3. Check Proxmox and Kubernetes documentation for component-specific issues
 4. Engage enterprise support channels for production environments
