@@ -17,17 +17,17 @@ This solution provides comprehensive automation for deploying and managing produ
 - **Infrastructure as Code** - Version-controlled, repeatable deployments
 - **Comprehensive monitoring** - Prometheus, Grafana, and alerting stack included
 
-### Technology Stack
+### Technology Stack and Rationale
 
-| Component | Technology | Purpose |
-|-----------|------------|---------|
-| **VM Templates** | Cloud Images + virt-customize | Immutable VM template creation |
-| **Infrastructure** | OpenTofu | Declarative infrastructure provisioning |
-| **Kubernetes Deployment** | Kubespray v2.28.1+ | Production-ready cluster deployment |
-| **Orchestration** | Python 3.11+ | Deployment coordination and state tracking |
-| **Container Network** | Cilium 1.18.1 | eBPF-based CNI with advanced security and observability |
-| **Storage** | Proxmox CSI | Dynamic persistent volume provisioning |
-| **Load Balancing** | MetalLB | Bare-metal LoadBalancer service implementation |
+| Component | Technology | Purpose | Why This Choice |
+|-----------|------------|---------|-----------------|
+| **VM Templates** | Cloud Images + virt-customize | Immutable VM template creation | Official Ubuntu cloud images (secure), simpler than Packer for cloud image workflows |
+| **Infrastructure** | OpenTofu | Declarative infrastructure provisioning | Open-source Terraform fork (Apache 2.0), avoids BSL licensing, 100% Terraform compatible |
+| **Kubernetes Deployment** | Kubespray v2.26.0+ | Production-ready cluster deployment | Battle-tested across thousands of deployments, comprehensive edge case handling |
+| **Orchestration** | Python 3.11+ | Deployment coordination and state tracking | Rich automation ecosystem, excellent Proxmox API support, async/await capabilities |
+| **Container Network** | Cilium 1.15.4+ | eBPF-based CNI with advanced security | Kernel-space performance, Layer 7 policies, identity-based security, superior observability |
+| **Storage** | Proxmox CSI | Dynamic persistent volume provisioning | Native Ceph RBD integration, high performance distributed storage |
+| **Load Balancing** | MetalLB | Bare-metal LoadBalancer service implementation | Standard Kubernetes LoadBalancer implementation for bare metal |
 
 ## Architecture
 
@@ -39,6 +39,13 @@ The solution deploys a production-grade Kubernetes cluster with the following co
 - **Cilium CNI** - Advanced networking with eBPF dataplane
 - **Proxmox CSI** - Integration with Ceph storage backend
 - **Platform Services** - Ingress, monitoring, backup, and certificate management
+
+### Design Principles
+
+- **Idempotency First**: All operations are safely repeatable with state tracking
+- **Separation of Concerns**: Clear boundaries between template creation, infrastructure, and configuration
+- **Production Readiness**: High availability, security hardening, automated backups, and monitoring
+- **Open Source**: Apache 2.0 and permissive licenses throughout the stack
 
 ### Network Configuration
 
@@ -364,11 +371,11 @@ For manual configuration details, see `scripts/cluster-manager.py`.
 
 ## Documentation
 
-This project includes comprehensive documentation:
-
-- **[ARCHITECTURE.md](ARCHITECTURE.md)** - Technology selection and design decisions
-
-All network allocation, DNS configuration, and deployment details are documented in this README.md file for easy reference.
+All essential documentation is contained in this README.md file, including:
+- Technology selection and design decisions
+- Complete network allocation and DNS configuration details
+- Deployment procedures and automation workflows
+- Troubleshooting guidance and best practices
 
 ## Cluster Access
 
@@ -495,7 +502,7 @@ python3 cluster-deploy.py deploy   # Fresh deployment
 For technical issues or deployment assistance:
 
 1. Review deployment logs in `scripts/deployment-state.json`
-2. Consult [ARCHITECTURE.md](ARCHITECTURE.md) for design decisions
+2. Review technology selection rationale in the Technology Stack section above
 3. Check Proxmox and Kubernetes documentation for component-specific issues
 4. Engage enterprise support channels for production environments
 
