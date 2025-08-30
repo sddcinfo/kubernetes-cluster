@@ -12,6 +12,9 @@ provider "proxmox" {
   username  = "root@pam"
   password  = "proxmox123"
   insecure  = true
+  
+  # Performance optimizations
+  tmp_dir = "/tmp"
 }
 
 # Local variables for host affinity mapping
@@ -90,11 +93,18 @@ resource "proxmox_virtual_environment_vm" "haproxy_lb" {
   # Match template configuration
   bios    = "ovmf"
   machine = "q35"
+  
+  # Reliability and migration settings
+  migrate         = false   # Disable automatic migration during maintenance
+  protection      = false   # Allow deletion via Terraform
+  reboot          = false   # Don't auto-reboot after creation
+  stop_on_destroy = false   # Shutdown gracefully on destroy
 
   clone {
     vm_id     = 9000  # ubuntu-base-template
     node_name = "node1"  # Template only exists on node1
     full      = true
+    retries   = 3  # Retry cloning up to 3 times on failure
   }
 
   cpu {
@@ -114,16 +124,35 @@ resource "proxmox_virtual_environment_vm" "haproxy_lb" {
     pre_enrolled_keys = false
   }
 
+  # SCSI hardware for better performance
+  scsi_hardware = "virtio-scsi-pci"
+  
   disk {
     datastore_id = "rbd"
     interface    = "scsi0"
     size         = 32
+    cache        = "none"    # Best for shared storage like Ceph/RBD
+    discard      = "ignore"  # Optimize for RBD storage
+    iothread     = false     # Disable for RBD compatibility
+    ssd          = false     # Mark as rotational for Ceph
+    backup       = true      # Enable backup by default
+    replicate    = true      # Enable replication
   }
 
   network_device {
     bridge      = "vmbr0"
     model       = "virtio"
     mac_address = local.vm_macs[each.key]
+    firewall    = false      # Disable Proxmox firewall for performance
+    queues      = 0          # Let Proxmox determine optimal queue count
+    rate_limit  = 0          # No rate limiting
+  }
+  
+  # QEMU Guest Agent for better integration
+  agent {
+    enabled = true
+    trim    = false
+    timeout = "15m"
   }
 
   # Serial console (matches template)
@@ -167,6 +196,15 @@ resource "proxmox_virtual_environment_vm" "haproxy_lb" {
 
   started = true
   on_boot = true
+  
+  # Optimized timeouts for reliability and performance
+  timeout_clone       = 2400  # 40 minutes for clone operations
+  timeout_create      = 2400  # 40 minutes for VM creation
+  timeout_start_vm    = 900   # 15 minutes for VM startup
+  timeout_shutdown_vm = 900   # 15 minutes for graceful shutdown
+  timeout_stop_vm     = 300   # 5 minutes for force stop
+  timeout_reboot      = 900   # 15 minutes for reboot
+  timeout_migrate     = 3600  # 1 hour for migration
 }
 
 # Control Plane Nodes
@@ -183,11 +221,18 @@ resource "proxmox_virtual_environment_vm" "control_plane" {
   # Match template configuration
   bios    = "ovmf"
   machine = "q35"
+  
+  # Reliability and migration settings
+  migrate         = false   # Disable automatic migration during maintenance
+  protection      = false   # Allow deletion via Terraform
+  reboot          = false   # Don't auto-reboot after creation
+  stop_on_destroy = false   # Shutdown gracefully on destroy
 
   clone {
     vm_id     = 9000  # ubuntu-base-template
     node_name = "node1"  # Template only exists on node1
     full      = true
+    retries   = 3  # Retry cloning up to 3 times on failure
   }
 
   cpu {
@@ -207,16 +252,35 @@ resource "proxmox_virtual_environment_vm" "control_plane" {
     pre_enrolled_keys = false
   }
 
+  # SCSI hardware for better performance
+  scsi_hardware = "virtio-scsi-pci"
+  
   disk {
     datastore_id = "rbd"
     interface    = "scsi0"
     size         = 32
+    cache        = "none"    # Best for shared storage like Ceph/RBD
+    discard      = "ignore"  # Optimize for RBD storage
+    iothread     = false     # Disable for RBD compatibility
+    ssd          = false     # Mark as rotational for Ceph
+    backup       = true      # Enable backup by default
+    replicate    = true      # Enable replication
   }
 
   network_device {
     bridge      = "vmbr0"
     model       = "virtio"
     mac_address = local.vm_macs[each.key]
+    firewall    = false      # Disable Proxmox firewall for performance
+    queues      = 0          # Let Proxmox determine optimal queue count
+    rate_limit  = 0          # No rate limiting
+  }
+  
+  # QEMU Guest Agent for better integration
+  agent {
+    enabled = true
+    trim    = false
+    timeout = "15m"
   }
 
   # Serial console (matches template)
@@ -260,6 +324,15 @@ resource "proxmox_virtual_environment_vm" "control_plane" {
 
   started = true
   on_boot = true
+  
+  # Optimized timeouts for reliability and performance
+  timeout_clone       = 2400  # 40 minutes for clone operations
+  timeout_create      = 2400  # 40 minutes for VM creation
+  timeout_start_vm    = 900   # 15 minutes for VM startup
+  timeout_shutdown_vm = 900   # 15 minutes for graceful shutdown
+  timeout_stop_vm     = 300   # 5 minutes for force stop
+  timeout_reboot      = 900   # 15 minutes for reboot
+  timeout_migrate     = 3600  # 1 hour for migration
 }
 
 # Worker Nodes
@@ -276,11 +349,18 @@ resource "proxmox_virtual_environment_vm" "workers" {
   # Match template configuration
   bios    = "ovmf"
   machine = "q35"
+  
+  # Reliability and migration settings
+  migrate         = false   # Disable automatic migration during maintenance
+  protection      = false   # Allow deletion via Terraform
+  reboot          = false   # Don't auto-reboot after creation
+  stop_on_destroy = false   # Shutdown gracefully on destroy
 
   clone {
     vm_id     = 9000  # ubuntu-base-template
     node_name = "node1"  # Template only exists on node1
     full      = true
+    retries   = 3  # Retry cloning up to 3 times on failure
   }
 
   cpu {
@@ -300,16 +380,35 @@ resource "proxmox_virtual_environment_vm" "workers" {
     pre_enrolled_keys = false
   }
 
+  # SCSI hardware for better performance
+  scsi_hardware = "virtio-scsi-pci"
+  
   disk {
     datastore_id = "rbd"
     interface    = "scsi0"
     size         = 32
+    cache        = "none"    # Best for shared storage like Ceph/RBD
+    discard      = "ignore"  # Optimize for RBD storage
+    iothread     = false     # Disable for RBD compatibility
+    ssd          = false     # Mark as rotational for Ceph
+    backup       = true      # Enable backup by default
+    replicate    = true      # Enable replication
   }
 
   network_device {
     bridge      = "vmbr0"
     model       = "virtio"
     mac_address = local.vm_macs[each.key]
+    firewall    = false      # Disable Proxmox firewall for performance
+    queues      = 0          # Let Proxmox determine optimal queue count
+    rate_limit  = 0          # No rate limiting
+  }
+  
+  # QEMU Guest Agent for better integration
+  agent {
+    enabled = true
+    trim    = false
+    timeout = "15m"
   }
 
   # Serial console (matches template)
@@ -353,6 +452,15 @@ resource "proxmox_virtual_environment_vm" "workers" {
 
   started = true
   on_boot = true
+  
+  # Optimized timeouts for reliability and performance
+  timeout_clone       = 2400  # 40 minutes for clone operations
+  timeout_create      = 2400  # 40 minutes for VM creation
+  timeout_start_vm    = 900   # 15 minutes for VM startup
+  timeout_shutdown_vm = 900   # 15 minutes for graceful shutdown
+  timeout_stop_vm     = 300   # 5 minutes for force stop
+  timeout_reboot      = 900   # 15 minutes for reboot
+  timeout_migrate     = 3600  # 1 hour for migration
 }
 
 # Outputs
