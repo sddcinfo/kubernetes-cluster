@@ -626,6 +626,7 @@ control_path = /tmp/ansible-%%h-%%p-%%r
         if self.fast_mode:
             fast_config = """---
 # Fast mode optimizations - skip non-essential tasks
+# Note: Boolean values must be proper YAML booleans, not strings
 skip_downloads: false
 download_run_once: true
 download_localhost: true
@@ -635,14 +636,14 @@ download_force_cache: true
 # Skip system package updates (faster but less secure)
 skip_package_updates: true
 
-# Reduce fact gathering
+# Reduce fact gathering to improve performance
 gather_subset: "!hardware"
 
-# Skip non-essential validations
+# Skip non-essential validations for faster deployment
 skip_verify_kube_users: true
 skip_verify_kube_groups: true
 """
-            fast_config_path = group_vars_dir / "fast_mode.yml"
+            fast_config_path = group_vars_dir / "fast_mode.yml" 
             fast_config_path.write_text(fast_config)
             print(f"   Created fast-mode optimizations: {fast_config_path}")
         
@@ -725,12 +726,10 @@ skip_verify_kube_groups: true
             # Fast mode: skip non-essential tasks and use optimized tags
             cmd.extend([
                 "--skip-tags", "download,bootstrap-os,preinstall",  # Skip slow initialization tasks
-                "--tags", "k8s-cluster,network,master,node,addons",  # Focus on core deployment
-                "-e", "skip_downloads=false",  # Use cached downloads
-                "-e", "download_run_once=true",
-                "-e", "download_localhost=true"
+                "--tags", "k8s-cluster,network,master,node,addons"  # Focus on core deployment
             ])
             print("   Using fast-mode optimizations: skipping downloads and OS bootstrap")
+            print("   Fast mode variables configured via fast_mode.yml")
         else:
             # Standard mode: verbose output
             cmd.append("-v")
@@ -807,11 +806,20 @@ skip_verify_kube_groups: true
         return False
         
     def configure_management_kubeconfig(self, refresh_config=False):
-        """Configure management machine with kubectl pointing to VIP"""
+        """Configure management machine kubectl for optimal HA access"""
         print("\nPhase 6.5: Management Machine Configuration")
         print("=" * 50)
         
-        vip_address = "10.10.1.30"  # HAProxy VIP for control plane access
+        # Determine optimal configuration based on HA mode
+        if self.ha_mode == "localhost":
+            print("Localhost HA mode: Using direct control plane access for management")
+            return self._configure_direct_access_kubeconfig(refresh_config)
+        elif self.ha_mode == "kube-vip":
+            print("Kube-VIP HA mode: Using VIP access")
+            return self._configure_vip_kubeconfig(refresh_config, "10.10.1.30")
+        else:  # external or fallback
+            print("External HA mode: Using external load balancer")
+            return self._configure_vip_kubeconfig(refresh_config, "10.10.1.30")
         temp_kubeconfig = Path.home() / ".kube" / "config-k8s-proxmox"
         default_kubeconfig = Path.home() / ".kube" / "config"
         

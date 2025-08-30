@@ -244,9 +244,9 @@ python3 scripts/deploy-fresh-cluster.py --ha-mode external
 
 | Mode | Performance | Complexity | Certificate Issues | Infrastructure |
 |------|-------------|------------|-------------------|----------------|
-| **localhost** | ⭐⭐⭐⭐ High | ⭐⭐⭐⭐⭐ Simple | ✅ None | ✅ Built-in |
-| **kube-vip** | ⭐⭐⭐⭐⭐ Highest | ⭐⭐⭐ Moderate | ✅ None | ✅ Cloud-native |
-| **external** | ⭐⭐ Low | ⭐⭐ Complex | ❌ SAN issues | ❌ Extra VM |
+| **localhost** | High | Simple | None | Built-in |
+| **kube-vip** | Highest | Moderate | None | Cloud-native |
+| **external** | Low | Complex | SAN issues | Extra VM |
 
 **Recommended Approach:**
 - **Default**: Use `localhost` mode (built-in nginx proxy)
@@ -254,18 +254,18 @@ python3 scripts/deploy-fresh-cluster.py --ha-mode external
 - **Legacy**: Avoid `external` mode unless required for specific setups
 
 ### Localhost HA (Recommended)
-- ✅ **Zero configuration** - works out of the box
-- ✅ **High performance** - nginx proxy on each worker node  
-- ✅ **No certificate issues** - properly integrated
-- ✅ **Fault tolerant** - if one worker fails, others provide access
-- ✅ **Zero infrastructure overhead** - no additional VMs needed
+- **Zero configuration** - works out of the box
+- **High performance** - nginx proxy on each worker node  
+- **No certificate issues** - properly integrated
+- **Fault tolerant** - if one worker fails, others provide access
+- **Zero infrastructure overhead** - no additional VMs needed
 
 ### Kube-VIP HA (Advanced)
-- ✅ **True VIP** - single IP address (10.10.1.30)
-- ✅ **Leader election** - automatic failover between control nodes
-- ✅ **IPVS performance** - high-performance load balancing
-- ✅ **Certificate compatible** - VIP included in certificate SAN
-- ⚠️ **Network configuration** - requires careful interface setup
+- **True VIP** - single IP address (10.10.1.30)
+- **Leader election** - automatic failover between control nodes
+- **IPVS performance** - high-performance load balancing
+- **Certificate compatible** - VIP included in certificate SAN
+- **Network configuration** - requires careful interface setup
 
 ## Performance Optimization
 
@@ -291,11 +291,11 @@ python3 scripts/deploy-fresh-cluster.py --kubernetes-only --fast
   - Performance profiling enabled
 
 **When to Use Fast Mode:**
-- ✅ Re-running deployment on existing infrastructure
-- ✅ Applying configuration changes to running cluster
-- ✅ Testing deployment modifications quickly
-- ❌ First-time deployments (use standard mode)
-- ❌ Major version upgrades (use standard mode)
+- Re-running deployment on existing infrastructure
+- Applying configuration changes to running cluster
+- Testing deployment modifications quickly
+- First-time deployments (use standard mode)
+- Major version upgrades (use standard mode)
 
 **Performance Comparison:**
 - **Standard Mode**: 15-30 minutes (full deployment)
@@ -328,18 +328,17 @@ python3 scripts/deploy-fresh-cluster.py --kubernetes-only --fast
 - **Network**: Cilium CNI with Hubble observability enabled
 
 ### Verified Functionality
-- ✅ All nodes operational and in Ready state
-- ✅ HAProxy load balancer functional (port 6443)
-- ✅ Cilium networking operational across all nodes
-- ✅ CoreDNS cluster DNS resolution working
-- ✅ Pod scheduling and inter-pod networking verified
-- ✅ Kubernetes API accessible through load balancer
-- ✅ All system components running (kube-system namespace)
+- All nodes operational and in Ready state
+- Localhost load balancers functional on worker nodes (port 127.0.0.1:6443)
+- Cilium networking operational across all nodes
+- CoreDNS cluster DNS resolution working
+- Pod scheduling and inter-pod networking verified
+- Kubernetes API accessible through direct connection
+- All system components running (kube-system namespace)
 
 ### Access Methods
 - **Direct API Access**: First control plane node (10.10.1.31:6443)
-- **Load Balanced API**: HAProxy VIP (10.10.1.30:6443) - requires --insecure-skip-tls-verify
-- **HAProxy Stats**: http://10.10.1.30:8080/stats
+- **Localhost Load Balancer**: nginx proxies on worker nodes (127.0.0.1:6443)
 
 ### Cluster Access
 
@@ -348,8 +347,8 @@ python3 scripts/deploy-fresh-cluster.py --kubernetes-only --fast
 export KUBECONFIG=~/.kube/config-direct
 kubectl get nodes
 
-# Load balanced connection (insecure mode due to certificate SAN)
-kubectl --insecure-skip-tls-verify get nodes
+# Direct connection works without certificate issues
+kubectl get nodes
 
 # Cluster information
 kubectl cluster-info
