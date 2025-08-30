@@ -304,10 +304,11 @@ class ClusterDeployer:
         for attempt in range(1, self.max_retries + 1):
             print(f"\nDeployment attempt {attempt}/{self.max_retries}")
             
-            # Run Terraform apply with optimized parallelism (4 nodes = 4 parallel operations)
+            # Run Terraform apply with serial execution to avoid Ceph RBD lock issues
+            # Since template 9000 only exists on node1, we must clone serially
             result = self.run_command(
-                ["terraform", "apply", "-auto-approve", "-parallelism=4"],
-                "Running Terraform apply (parallel mode, 4 nodes)",
+                ["terraform", "apply", "-auto-approve", "-parallelism=1"],
+                "Running Terraform apply (serial mode to avoid Ceph locks)",
                 cwd=self.terraform_dir,
                 check=False
             )
