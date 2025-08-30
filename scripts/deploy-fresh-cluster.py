@@ -499,6 +499,22 @@ cilium_enable_prometheus: true
         cilium_yml_path.write_text(cilium_config)
         print(f"   Created Cilium CNI config: {cilium_yml_path}")
         
+        # Create Kubespray config with kube_owner: root for Cilium compatibility
+        k8s_cluster_config = """---
+# Kubespray configuration for Cilium compatibility
+# When using Cilium CNI, kube_owner must be root to prevent permission issues
+kube_owner: root
+
+# Additional optimizations
+kube_read_only_port: false
+kubelet_rotate_certificates: true
+kubelet_rotate_server_certificates: true
+"""
+        
+        k8s_cluster_yml_path = group_vars_dir / "k8s_cluster.yml" 
+        k8s_cluster_yml_path.write_text(k8s_cluster_config)
+        print(f"   Created k8s_cluster config with kube_owner=root: {k8s_cluster_yml_path}")
+        
     def configure_kubespray(self):
         """Configure Kubespray for deployment"""
         print("\n⚙️ Phase 3: Kubespray Configuration")
