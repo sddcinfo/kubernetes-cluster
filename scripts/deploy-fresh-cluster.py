@@ -16,7 +16,7 @@ class ClusterDeployer:
     def __init__(self, verify_only=False, infrastructure_only=False, kubespray_only=False, 
                  kubernetes_only=False, configure_mgmt_only=False, refresh_kubeconfig=False,
                  skip_cleanup=False, skip_terraform_reset=False, force_recreate=False,
-                 haproxy_only=False, fast_mode=False):
+                 haproxy_only=False, fast_mode=False, ha_mode="localhost"):
         self.project_dir = Path(__file__).parent.parent
         self.terraform_dir = self.project_dir / "terraform"
         self.kubespray_version = "v2.28.1"
@@ -40,6 +40,7 @@ class ClusterDeployer:
         self.force_recreate = force_recreate
         self.haproxy_only = haproxy_only
         self.fast_mode = fast_mode
+        self.ha_mode = ha_mode
         
     def run_command(self, command, description, cwd=None, check=True, timeout=None, log_file=None):
         """Run a command with proper error handling and optional logging"""
@@ -504,8 +505,19 @@ cilium_enable_prometheus: true
         cilium_yml_path.write_text(cilium_config)
         print(f"   Created Cilium CNI config: {cilium_yml_path}")
         
-        # Create Kubespray config with kube_owner: root for Cilium compatibility
-        k8s_cluster_config = """---
+        # Create Kubespray config with optimized HA and Cilium compatibility
+        k8s_cluster_config = self.generate_ha_config()
+        
+        k8s_cluster_yml_path = group_vars_dir / "k8s_cluster.yml" 
+        k8s_cluster_yml_path.write_text(k8s_cluster_config)
+        print(f"   Created k8s_cluster config with kube_owner=root: {k8s_cluster_yml_path}")
+        
+        # Create Ansible performance optimization config
+        self.create_ansible_optimization_config(group_vars_dir)
+    
+    def generate_ha_config(self):
+        """Generate High Availability configuration based on selected mode"""
+        base_config = """---
 # Kubespray configuration for Cilium compatibility
 # When using Cilium CNI, kube_owner must be root to prevent permission issues
 kube_owner: root
@@ -514,14 +526,75 @@ kube_owner: root
 kube_read_only_port: false
 kubelet_rotate_certificates: true
 kubelet_rotate_server_certificates: true
+
+# Enhanced cluster reliability
+cluster_name: k8s-proxmox-cluster
+kube_api_anonymous_auth: true
 """
         
-        k8s_cluster_yml_path = group_vars_dir / "k8s_cluster.yml" 
-        k8s_cluster_yml_path.write_text(k8s_cluster_config)
-        print(f"   Created k8s_cluster config with kube_owner=root: {k8s_cluster_yml_path}")
+        if self.ha_mode == "localhost":
+            # Built-in localhost load balancer (recommended)
+            ha_config = """
+# High Availability Configuration - Localhost Load Balancer
+# Built-in nginx proxy on each worker node for HA without external dependencies
+loadbalancer_apiserver_localhost: true
+loadbalancer_apiserver_port: 6443
+
+# Disable external load balancer
+# loadbalancer_apiserver: {}  # Commented out to use localhost LB
+"""
+            print("   Using localhost load balancer HA mode (built-in)")
+            
+        elif self.ha_mode == "kube-vip":
+            # Kube-VIP configuration for true VIP with leader election
+            ha_config = f"""
+# High Availability Configuration - Kube-VIP
+# Modern cloud-native VIP solution with automatic failover
+kube_vip_enabled: true
+kube_vip_controlplane_enabled: true
+kube_vip_address: 10.10.1.30  # VIP address
+kube_vip_interface: ens18     # Network interface
+kube_vip_arp_enabled: true
+kube_vip_services_enabled: false  # Focus on control plane HA only
+
+# Required kube-proxy settings for kube-vip
+kube_proxy_mode: ipvs
+kube_proxy_strict_arp: true
+
+# Configure API server to use VIP
+loadbalancer_apiserver:
+  address: 10.10.1.30
+  port: 6443
+
+# Disable localhost load balancer when using kube-vip
+loadbalancer_apiserver_localhost: false
+"""
+            print("   Using kube-vip HA mode (VIP with leader election)")
+            
+        elif self.ha_mode == "external":
+            # External load balancer (HAProxy) - legacy mode
+            ha_config = """
+# High Availability Configuration - External Load Balancer
+# Uses external HAProxy for load balancing (requires manual setup)
+loadbalancer_apiserver:
+  address: 10.10.1.30
+  port: 6443
+
+# Disable localhost load balancer when using external LB
+loadbalancer_apiserver_localhost: false
+"""
+            print("   Using external load balancer HA mode (HAProxy)")
+            
+        else:
+            # Default to localhost
+            ha_config = """
+# High Availability Configuration - Localhost Load Balancer (Default)
+loadbalancer_apiserver_localhost: true
+loadbalancer_apiserver_port: 6443
+"""
+            print(f"   Unknown HA mode '{self.ha_mode}', defaulting to localhost")
         
-        # Create Ansible performance optimization config
-        self.create_ansible_optimization_config(group_vars_dir)
+        return base_config + ha_config
         
     def create_ansible_optimization_config(self, group_vars_dir):
         """Create ansible.cfg optimization for faster re-runs"""
@@ -1416,6 +1489,8 @@ def main():
                        help="Refresh kubeconfig from cluster when configuring management")
     parser.add_argument("--fast", action="store_true",
                        help="Fast mode for re-runs: skip downloads, OS bootstrap, and use optimized tags")
+    parser.add_argument("--ha-mode", choices=["localhost", "kube-vip", "external"], default="localhost",
+                       help="HA mode: localhost (built-in nginx, default), kube-vip (VIP with leader election), external (HAProxy)")
     
     # Phase control flags
     parser.add_argument("--skip-cleanup", action="store_true",
@@ -1449,7 +1524,8 @@ def main():
         skip_terraform_reset=args.skip_terraform_reset,
         force_recreate=args.force_recreate,
         haproxy_only=args.haproxy_only,
-        fast_mode=args.fast
+        fast_mode=args.fast,
+        ha_mode=args.ha_mode
     )
     deployer.run()
     

@@ -223,6 +223,50 @@ This creates optimized inventory configuration with:
 - Performance optimizations
 - Security hardening
 
+## High Availability Optimization
+
+### HA Mode Selection
+
+The deployment script supports **3 optimized HA modes** for different use cases:
+
+```bash
+# Localhost HA (default, recommended) - built-in nginx on worker nodes
+python3 scripts/deploy-fresh-cluster.py --ha-mode localhost
+
+# Kube-VIP HA - modern cloud-native VIP with leader election  
+python3 scripts/deploy-fresh-cluster.py --ha-mode kube-vip
+
+# External HA - legacy HAProxy approach (not recommended)
+python3 scripts/deploy-fresh-cluster.py --ha-mode external
+```
+
+### HA Mode Comparison
+
+| Mode | Performance | Complexity | Certificate Issues | Infrastructure |
+|------|-------------|------------|-------------------|----------------|
+| **localhost** | ⭐⭐⭐⭐ High | ⭐⭐⭐⭐⭐ Simple | ✅ None | ✅ Built-in |
+| **kube-vip** | ⭐⭐⭐⭐⭐ Highest | ⭐⭐⭐ Moderate | ✅ None | ✅ Cloud-native |
+| **external** | ⭐⭐ Low | ⭐⭐ Complex | ❌ SAN issues | ❌ Extra VM |
+
+**Recommended Approach:**
+- **Default**: Use `localhost` mode (built-in nginx proxy)
+- **Advanced**: Use `kube-vip` mode for true VIP with leader election
+- **Legacy**: Avoid `external` mode unless required for specific setups
+
+### Localhost HA (Recommended)
+- ✅ **Zero configuration** - works out of the box
+- ✅ **High performance** - nginx proxy on each worker node  
+- ✅ **No certificate issues** - properly integrated
+- ✅ **Fault tolerant** - if one worker fails, others provide access
+- ✅ **Zero infrastructure overhead** - no additional VMs needed
+
+### Kube-VIP HA (Advanced)
+- ✅ **True VIP** - single IP address (10.10.1.30)
+- ✅ **Leader election** - automatic failover between control nodes
+- ✅ **IPVS performance** - high-performance load balancing
+- ✅ **Certificate compatible** - VIP included in certificate SAN
+- ⚠️ **Network configuration** - requires careful interface setup
+
 ## Performance Optimization
 
 ### Fast Mode for Re-deployments
