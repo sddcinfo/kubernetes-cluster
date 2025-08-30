@@ -87,6 +87,10 @@ resource "proxmox_virtual_environment_vm" "haproxy_lb" {
   node_name = each.value
   vm_id     = local.vm_ids[each.key]
 
+  # Match template configuration
+  bios    = "ovmf"
+  machine = "q35"
+
   clone {
     vm_id     = 9000  # ubuntu-base-template
     node_name = "node1"  # Template only exists on node1
@@ -102,6 +106,14 @@ resource "proxmox_virtual_environment_vm" "haproxy_lb" {
     dedicated = 2048
   }
 
+  # EFI disk (matches template efidisk0)
+  efi_disk {
+    datastore_id      = "rbd"
+    file_format       = "raw"
+    type              = "4m"
+    pre_enrolled_keys = false
+  }
+
   disk {
     datastore_id = "rbd"
     interface    = "scsi0"
@@ -112,6 +124,24 @@ resource "proxmox_virtual_environment_vm" "haproxy_lb" {
     bridge      = "vmbr0"
     model       = "virtio"
     mac_address = local.vm_macs[each.key]
+  }
+
+  # Serial console (matches template)
+  serial_device {
+    device = "socket"
+  }
+
+  # VGA settings (matches template)
+  vga {
+    type   = "serial0"
+    memory = 16
+  }
+
+  # Random number generator (matches template)
+  rng {
+    source    = "/dev/urandom"
+    max_bytes = 1024
+    period    = 1000
   }
 
   initialization {
@@ -150,6 +180,10 @@ resource "proxmox_virtual_environment_vm" "control_plane" {
   node_name = each.value
   vm_id     = local.vm_ids[each.key]
 
+  # Match template configuration
+  bios    = "ovmf"
+  machine = "q35"
+
   clone {
     vm_id     = 9000  # ubuntu-base-template
     node_name = "node1"  # Template only exists on node1
@@ -165,6 +199,14 @@ resource "proxmox_virtual_environment_vm" "control_plane" {
     dedicated = 8192
   }
 
+  # EFI disk (matches template efidisk0)
+  efi_disk {
+    datastore_id      = "rbd"
+    file_format       = "raw"
+    type              = "4m"
+    pre_enrolled_keys = false
+  }
+
   disk {
     datastore_id = "rbd"
     interface    = "scsi0"
@@ -175,6 +217,24 @@ resource "proxmox_virtual_environment_vm" "control_plane" {
     bridge      = "vmbr0"
     model       = "virtio"
     mac_address = local.vm_macs[each.key]
+  }
+
+  # Serial console (matches template)
+  serial_device {
+    device = "socket"
+  }
+
+  # VGA settings (matches template)
+  vga {
+    type   = "serial0"
+    memory = 16
+  }
+
+  # Random number generator (matches template)
+  rng {
+    source    = "/dev/urandom"
+    max_bytes = 1024
+    period    = 1000
   }
 
   initialization {
@@ -213,6 +273,10 @@ resource "proxmox_virtual_environment_vm" "workers" {
   node_name = each.value
   vm_id     = local.vm_ids[each.key]
 
+  # Match template configuration
+  bios    = "ovmf"
+  machine = "q35"
+
   clone {
     vm_id     = 9000  # ubuntu-base-template
     node_name = "node1"  # Template only exists on node1
@@ -228,6 +292,14 @@ resource "proxmox_virtual_environment_vm" "workers" {
     dedicated = 16384
   }
 
+  # EFI disk (matches template efidisk0)
+  efi_disk {
+    datastore_id      = "rbd"
+    file_format       = "raw"
+    type              = "4m"
+    pre_enrolled_keys = false
+  }
+
   disk {
     datastore_id = "rbd"
     interface    = "scsi0"
@@ -238,6 +310,24 @@ resource "proxmox_virtual_environment_vm" "workers" {
     bridge      = "vmbr0"
     model       = "virtio"
     mac_address = local.vm_macs[each.key]
+  }
+
+  # Serial console (matches template)
+  serial_device {
+    device = "socket"
+  }
+
+  # VGA settings (matches template)
+  vga {
+    type   = "serial0"
+    memory = 16
+  }
+
+  # Random number generator (matches template)
+  rng {
+    source    = "/dev/urandom"
+    max_bytes = 1024
+    period    = 1000
   }
 
   initialization {
