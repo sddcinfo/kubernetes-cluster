@@ -16,7 +16,7 @@ class ClusterDeployer:
     def __init__(self, verify_only=False, infrastructure_only=False, kubespray_only=False, 
                  kubernetes_only=False, configure_mgmt_only=False, refresh_kubeconfig=False,
                  skip_cleanup=False, skip_terraform_reset=False, force_recreate=False,
-                 haproxy_only=False, fast_mode=False, ha_mode="localhost"):
+                 haproxy_only=False, fast_mode=False, ha_mode="localhost", phase_only=None):
         self.project_dir = Path(__file__).parent.parent
         self.terraform_dir = self.project_dir / "terraform"
         self.kubespray_version = "v2.28.1"
@@ -46,6 +46,7 @@ class ClusterDeployer:
         self.haproxy_only = haproxy_only
         self.fast_mode = fast_mode
         self.ha_mode = ha_mode
+        self.phase_only = phase_only
         
     def run_command(self, command, description, cwd=None, check=True, timeout=None, log_file=None):
         """Run a command with proper error handling and optional logging"""
@@ -1346,6 +1347,11 @@ function kube-default() {{
             self.verify_existing_vms()
             return
             
+        # Handle individual phase execution
+        if self.phase_only:
+            self.run_single_phase()
+            return
+            
         # Determine deployment mode
         if self.infrastructure_only:
             self.run_infrastructure_only()
@@ -1359,6 +1365,68 @@ function kube-default() {{
             self.run_haproxy_only()
         else:
             self.run_full_deployment()
+    
+    def run_single_phase(self):
+        """Run only a specific phase based on phase_only parameter"""
+        print(f"Single Phase Execution: {self.phase_only}")
+        print("=" * 50)
+        print(f"Project Directory: {self.project_dir}")
+        print(f"HA Mode: {self.ha_mode}")
+        print("=" * 50)
+        
+        # Execute the specified phase
+        if self.phase_only == "cleanup":
+            print("Running Phase -1: VM Cleanup")
+            self.manual_vm_cleanup()
+            
+        elif self.phase_only == "reset":
+            print("Running Phase 0: Terraform Reset")
+            self.reset_terraform()
+            
+        elif self.phase_only == "infrastructure":
+            print("Running Phase 1: Infrastructure Deployment")
+            self.deploy_infrastructure()
+            
+        elif self.phase_only == "kubespray-setup":
+            print("Running Phase 2: Kubespray Setup")
+            self.setup_kubespray_environment()
+            
+        elif self.phase_only == "kubespray-config":
+            print("Running Phase 3: Kubespray Configuration")
+            self.configure_kubespray()
+            
+        elif self.phase_only == "connectivity":
+            print("Running Phase 4: Connectivity Test")
+            self.test_connectivity()
+            
+        elif self.phase_only == "kubernetes":
+            print("Running Phase 5: Kubernetes Deployment")
+            self.deploy_kubernetes()
+            
+        elif self.phase_only == "kubeconfig":
+            print("Running Phase 6: Kubeconfig Setup")
+            self.setup_kubeconfig()
+            
+        elif self.phase_only == "management":
+            print("Running Phase 6.5: Management Machine Configuration")
+            self.configure_management_kubeconfig(refresh_config=self.refresh_kubeconfig)
+            
+        elif self.phase_only == "haproxy":
+            print("Running Phase 6.75: HAProxy Setup")
+            if self.ha_mode == "external":
+                self.setup_haproxy()
+            else:
+                print(f"HAProxy phase not applicable for HA mode: {self.ha_mode}")
+                
+        elif self.phase_only == "verify":
+            print("Running Phase 7: Cluster Verification")
+            self.verify_cluster()
+            
+        else:
+            print(f"Unknown phase: {self.phase_only}")
+            sys.exit(1)
+            
+        print(f"\nPhase {self.phase_only} completed successfully!")
             
     def run_infrastructure_only(self):
         """Deploy only infrastructure (VMs) with Terraform"""
@@ -1584,6 +1652,12 @@ def main():
     parser.add_argument("--ha-mode", choices=["localhost", "kube-vip", "external"], default="localhost",
                        help="HA mode: localhost (built-in nginx, default), kube-vip (VIP with leader election), external (HAProxy)")
     
+    # Individual phase execution flags
+    parser.add_argument("--phase", type=str, choices=[
+        "cleanup", "reset", "infrastructure", "kubespray-setup", "kubespray-config", 
+        "connectivity", "kubernetes", "kubeconfig", "management", "haproxy", "verify"
+    ], help="Run only a specific phase: cleanup(-1), reset(0), infrastructure(1), kubespray-setup(2), kubespray-config(3), connectivity(4), kubernetes(5), kubeconfig(6), management(6.5), haproxy(6.75), verify(7)")
+    
     # Phase control flags
     parser.add_argument("--skip-cleanup", action="store_true",
                        help="Skip manual VM cleanup phase")
@@ -1598,6 +1672,11 @@ def main():
     component_flags = [args.infrastructure_only, args.kubespray_only, args.kubernetes_only, args.configure_mgmt_only, args.haproxy_only]
     if sum(component_flags) > 1:
         print("Cannot specify multiple component flags simultaneously")
+        sys.exit(1)
+    
+    # Validate phase argument doesn't conflict with other flags
+    if args.phase and (sum(component_flags) > 0 or args.verify_only):
+        print("Cannot specify --phase with other execution mode flags")
         sys.exit(1)
         
     # Check if running from correct directory
@@ -1617,7 +1696,8 @@ def main():
         force_recreate=args.force_recreate,
         haproxy_only=args.haproxy_only,
         fast_mode=args.fast,
-        ha_mode=args.ha_mode
+        ha_mode=args.ha_mode,
+        phase_only=args.phase
     )
     deployer.run()
     
