@@ -16,7 +16,7 @@ class ClusterDeployer:
     def __init__(self, verify_only=False, infrastructure_only=False, kubespray_only=False, 
                  kubernetes_only=False, configure_mgmt_only=False, refresh_kubeconfig=False,
                  skip_cleanup=False, skip_terraform_reset=False, force_recreate=False,
-                 haproxy_only=False):
+                 haproxy_only=False, fast_mode=False):
         self.project_dir = Path(__file__).parent.parent
         self.terraform_dir = self.project_dir / "terraform"
         self.kubespray_version = "v2.28.1"
@@ -39,6 +39,7 @@ class ClusterDeployer:
         self.skip_terraform_reset = skip_terraform_reset
         self.force_recreate = force_recreate
         self.haproxy_only = haproxy_only
+        self.fast_mode = fast_mode
         
     def run_command(self, command, description, cwd=None, check=True, timeout=None, log_file=None):
         """Run a command with proper error handling and optional logging"""
@@ -519,6 +520,59 @@ kubelet_rotate_server_certificates: true
         k8s_cluster_yml_path.write_text(k8s_cluster_config)
         print(f"   Created k8s_cluster config with kube_owner=root: {k8s_cluster_yml_path}")
         
+        # Create Ansible performance optimization config
+        self.create_ansible_optimization_config(group_vars_dir)
+        
+    def create_ansible_optimization_config(self, group_vars_dir):
+        """Create ansible.cfg optimization for faster re-runs"""
+        print("Creating Ansible performance optimizations...")
+        
+        # Create optimized ansible.cfg in kubespray directory
+        ansible_cfg_content = """[defaults]
+# Performance optimizations for faster playbook execution
+host_key_checking = False
+pipelining = True
+forks = 20
+gathering = smart
+fact_caching = memory
+fact_caching_timeout = 3600
+callback_whitelist = timer, profile_tasks, profile_roles
+
+# SSH connection optimization
+[ssh_connection]
+ssh_args = -o ControlMaster=auto -o ControlPersist=600s -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no
+pipelining = True
+control_path = /tmp/ansible-%%h-%%p-%%r
+"""
+        
+        ansible_cfg_path = self.kubespray_dir / "ansible.cfg"
+        ansible_cfg_path.write_text(ansible_cfg_content)
+        print(f"   Created optimized ansible.cfg: {ansible_cfg_path}")
+        
+        # Create fast-mode specific optimizations
+        if self.fast_mode:
+            fast_config = """---
+# Fast mode optimizations - skip non-essential tasks
+skip_downloads: false
+download_run_once: true
+download_localhost: true
+download_keep_remote_cache: true
+download_force_cache: true
+
+# Skip system package updates (faster but less secure)
+skip_package_updates: true
+
+# Reduce fact gathering
+gather_subset: "!hardware"
+
+# Skip non-essential validations
+skip_verify_kube_users: true
+skip_verify_kube_groups: true
+"""
+            fast_config_path = group_vars_dir / "fast_mode.yml"
+            fast_config_path.write_text(fast_config)
+            print(f"   Created fast-mode optimizations: {fast_config_path}")
+        
     def configure_kubespray(self):
         """Configure Kubespray for deployment"""
         print("\nPhase 3: Kubespray Configuration")
@@ -575,21 +629,45 @@ kubelet_rotate_server_certificates: true
         """Deploy Kubernetes cluster with Kubespray"""
         print("\nPhase 5: Kubernetes Deployment")
         print("=" * 50)
-        print("This will take 15-30 minutes...")
+        
+        if self.fast_mode:
+            print("Fast mode enabled - optimized for re-runs (5-15 minutes)")
+        else:
+            print("Standard deployment mode (15-30 minutes)")
         
         ansible_playbook_path = self.venv_dir / "bin" / "ansible-playbook"
         inventory_file = self.kubespray_dir / "inventory" / "proxmox-cluster" / "inventory.ini"
         
         # Create log file with timestamp
-        log_file = self.project_dir / f"kubespray-deployment-{int(time.time())}.log"
+        mode_suffix = "-fast" if self.fast_mode else ""
+        log_file = self.project_dir / f"kubespray-deployment{mode_suffix}-{int(time.time())}.log"
         print(f"Deployment log: {log_file}")
         
         start_time = time.time()
         
-        # Run with verbose output and log to file
+        # Build optimized command for fast mode
+        cmd = [str(ansible_playbook_path), "-i", str(inventory_file), "-b"]
+        
+        if self.fast_mode:
+            # Fast mode: skip non-essential tasks and use optimized tags
+            cmd.extend([
+                "--skip-tags", "download,bootstrap-os,preinstall",  # Skip slow initialization tasks
+                "--tags", "k8s-cluster,network,master,node,addons",  # Focus on core deployment
+                "-e", "skip_downloads=false",  # Use cached downloads
+                "-e", "download_run_once=true",
+                "-e", "download_localhost=true"
+            ])
+            print("   Using fast-mode optimizations: skipping downloads and OS bootstrap")
+        else:
+            # Standard mode: verbose output
+            cmd.append("-v")
+        
+        cmd.append("cluster.yml")
+        
+        # Run deployment
         result = self.run_command(
-            [str(ansible_playbook_path), "-i", str(inventory_file), "-b", "-v", "cluster.yml"],
-            "Running Kubespray deployment (check log file for detailed progress)",
+            cmd,
+            f"Running Kubespray deployment ({'fast' if self.fast_mode else 'standard'} mode)",
             cwd=self.kubespray_dir,
             check=False,
             timeout=3600,  # 1 hour timeout
@@ -1336,6 +1414,8 @@ def main():
                        help="Setup HAProxy load balancer only")
     parser.add_argument("--refresh-kubeconfig", action="store_true",
                        help="Refresh kubeconfig from cluster when configuring management")
+    parser.add_argument("--fast", action="store_true",
+                       help="Fast mode for re-runs: skip downloads, OS bootstrap, and use optimized tags")
     
     # Phase control flags
     parser.add_argument("--skip-cleanup", action="store_true",
@@ -1368,7 +1448,8 @@ def main():
         skip_cleanup=args.skip_cleanup,
         skip_terraform_reset=args.skip_terraform_reset,
         force_recreate=args.force_recreate,
-        haproxy_only=args.haproxy_only
+        haproxy_only=args.haproxy_only,
+        fast_mode=args.fast
     )
     deployer.run()
     

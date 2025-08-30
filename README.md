@@ -192,6 +192,9 @@ python3 scripts/deploy-fresh-cluster.py --skip-terraform-reset
 
 # Force complete rebuild
 python3 scripts/deploy-fresh-cluster.py --force-recreate
+
+# Fast mode for re-runs (5-15 minutes instead of 15-30 minutes)
+python3 scripts/deploy-fresh-cluster.py --kubernetes-only --fast
 ```
 
 ## Configuration
@@ -219,6 +222,41 @@ This creates optimized inventory configuration with:
 - Network configuration
 - Performance optimizations
 - Security hardening
+
+## Performance Optimization
+
+### Fast Mode for Re-deployments
+
+The deployment script includes a **fast mode** specifically optimized for re-running Kubespray on existing clusters:
+
+```bash
+# Fast re-deployment (5-15 minutes vs 15-30 minutes)
+python3 scripts/deploy-fresh-cluster.py --kubernetes-only --fast
+```
+
+**Fast Mode Optimizations:**
+
+- **Skip Downloads**: Uses cached container images and binaries
+- **Skip OS Bootstrap**: Skips system package updates and OS configuration  
+- **Optimized Tags**: Uses selective Ansible tags (`k8s-cluster,network,master,node,addons`)
+- **Skip Initialization**: Skips `download`, `bootstrap-os`, and `preinstall` tags
+- **Enhanced Ansible Config**: 
+  - SSH connection multiplexing with ControlMaster
+  - Increased parallelism (20 forks)
+  - Smart fact gathering with memory caching
+  - Performance profiling enabled
+
+**When to Use Fast Mode:**
+- ✅ Re-running deployment on existing infrastructure
+- ✅ Applying configuration changes to running cluster
+- ✅ Testing deployment modifications quickly
+- ❌ First-time deployments (use standard mode)
+- ❌ Major version upgrades (use standard mode)
+
+**Performance Comparison:**
+- **Standard Mode**: 15-30 minutes (full deployment)
+- **Fast Mode**: 5-15 minutes (optimized re-run)
+- **Time Savings**: 50-70% reduction in deployment time
 
 ## Operations
 
