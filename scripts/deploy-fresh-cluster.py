@@ -24,8 +24,13 @@ class ClusterDeployer:
         self.venv_dir = self.project_dir / "kubespray" / "venv"
         self.config_dir = self.project_dir / "kubespray-config"
         self.max_retries = 3
-        self.vm_count = 8  # 3 control + 4 workers + 1 haproxy
-        self.vm_ids = [130, 131, 132, 133, 140, 141, 142, 143]  # VMs to clean up
+        # Adjust VM count based on HA mode
+        if ha_mode == "external":
+            self.vm_count = 8  # 3 control + 4 workers + 1 haproxy
+            self.vm_ids = [130, 131, 132, 133, 140, 141, 142, 143]  # VMs to clean up
+        else:
+            self.vm_count = 7  # 3 control + 4 workers (no haproxy)
+            self.vm_ids = [131, 132, 133, 140, 141, 142, 143]  # VMs to clean up (no 130)
         self.proxmox_nodes = ["node1", "node2", "node3", "node4"]
         
         # Mode flags
@@ -805,6 +810,144 @@ skip_verify_kube_groups: true
         print("Could not fetch fresh kubeconfig via SSH, using existing if available")
         return False
         
+    def _configure_direct_access_kubeconfig(self, refresh_config=False):
+        """Configure kubeconfig for direct control plane access (localhost HA mode)"""
+        temp_kubeconfig = Path.home() / ".kube" / "config-k8s-proxmox"
+        default_kubeconfig = Path.home() / ".kube" / "config"
+        direct_config = Path.home() / ".kube" / "config-direct"
+        
+        # If refreshing or no existing config, fetch fresh kubeconfig
+        if refresh_config or not temp_kubeconfig.exists():
+            print("Fetching fresh kubeconfig from cluster...")
+            self._fetch_fresh_kubeconfig(temp_kubeconfig)
+        
+        if not temp_kubeconfig.exists():
+            print("Error: No kubeconfig available. Run full deployment first.")
+            return False
+        
+        # Read current kubeconfig
+        kubeconfig_content = temp_kubeconfig.read_text()
+        
+        # For localhost HA, keep the direct control plane IP (10.10.1.31)
+        # This works because localhost load balancers are on worker nodes
+        # The management machine connects directly to control plane
+        
+        # Write configs
+        default_kubeconfig.write_text(kubeconfig_content)
+        default_kubeconfig.chmod(0o600)
+        direct_config.write_text(kubeconfig_content)
+        direct_config.chmod(0o600)
+        
+        print(f"Direct access kubeconfig configured at: {default_kubeconfig}")
+        print(f"Also available at: {direct_config}")
+        
+        # Test connectivity
+        result = self.run_command(
+            "kubectl cluster-info",
+            "Testing kubectl connectivity (direct access)",
+            check=False
+        )
+        
+        if result.returncode == 0:
+            print("Successfully configured kubectl for direct access (localhost HA mode)")
+            self.setup_shell_environment(default_kubeconfig)
+            return True
+        else:
+            print("Warning: kubectl connectivity test failed")
+            return False
+    
+    def _configure_vip_kubeconfig(self, refresh_config=False, vip_address="10.10.1.30"):
+        """Configure kubeconfig for VIP access (kube-vip or external HA mode)"""
+        temp_kubeconfig = Path.home() / ".kube" / "config-k8s-proxmox"
+        default_kubeconfig = Path.home() / ".kube" / "config"
+        
+        # If refreshing or no existing config, fetch fresh kubeconfig
+        if refresh_config or not temp_kubeconfig.exists():
+            print("Fetching fresh kubeconfig from cluster...")
+            self._fetch_fresh_kubeconfig(temp_kubeconfig)
+        
+        if not temp_kubeconfig.exists():
+            print("Error: No kubeconfig available. Run full deployment first.")
+            return False
+        
+        # Read current kubeconfig
+        kubeconfig_content = temp_kubeconfig.read_text()
+        
+        # Replace server URL to point to VIP instead of individual control plane node
+        updated_content = kubeconfig_content
+        for control_ip in ["10.10.1.31", "10.10.1.32", "10.10.1.33"]:
+            updated_content = updated_content.replace(
+                f"https://{control_ip}:6443",
+                f"https://{vip_address}:6443"
+            )
+        
+        # Write updated kubeconfig
+        default_kubeconfig.write_text(updated_content)
+        default_kubeconfig.chmod(0o600)
+        temp_kubeconfig.write_text(updated_content)
+        temp_kubeconfig.chmod(0o600)
+        
+        print(f"VIP access kubeconfig configured at: {default_kubeconfig}")
+        print(f"Using VIP address: {vip_address}")
+        
+        # Test connectivity
+        result = self.run_command(
+            "kubectl cluster-info",
+            f"Testing kubectl connectivity via VIP {vip_address}",
+            check=False
+        )
+        
+        if result.returncode == 0:
+            print(f"Successfully configured kubectl for VIP access ({self.ha_mode} HA mode)")
+            self.setup_shell_environment(default_kubeconfig)
+            return True
+        else:
+            print(f"Warning: kubectl connectivity test failed via VIP {vip_address}")
+            # Try with --insecure-skip-tls-verify for external HA
+            if self.ha_mode == "external":
+                result = self.run_command(
+                    "kubectl --insecure-skip-tls-verify cluster-info",
+                    "Testing with certificate verification disabled",
+                    check=False
+                )
+                if result.returncode == 0:
+                    print("Note: External HA requires --insecure-skip-tls-verify due to certificate SAN issues")
+            return False
+    
+    def _fetch_fresh_kubeconfig(self, target_path):
+        """Helper method to fetch fresh kubeconfig from cluster"""
+        # Check if we have kubespray environment to fetch config
+        if self.kubespray_dir.exists():
+            ansible_path = self.venv_dir / "bin" / "ansible"
+            inventory_file = self.kubespray_dir / "inventory" / "proxmox-cluster" / "inventory.ini"
+            
+            if inventory_file.exists():
+                # Try ansible first
+                result = self.run_command(
+                    [str(ansible_path), "-i", str(inventory_file),
+                     "kube_control_plane[0]", "-m", "fetch",
+                     "-a", "src=/etc/kubernetes/admin.conf dest=/tmp/kubeconfig-fresh flat=yes"],
+                    "Fetching fresh kubeconfig from control plane",
+                    cwd=self.kubespray_dir,
+                    check=False
+                )
+                
+                if result.returncode == 0 and Path("/tmp/kubeconfig-fresh").exists():
+                    shutil.copy("/tmp/kubeconfig-fresh", target_path)
+                    target_path.chmod(0o600)
+                    print("Fresh kubeconfig fetched via Ansible")
+                    return True
+                else:
+                    print("Ansible fetch failed, trying direct SSH...")
+                    return self._fetch_kubeconfig_via_ssh(target_path)
+            else:
+                print("Warning: Kubespray inventory not found, trying direct SSH...")
+                return self._fetch_kubeconfig_via_ssh(target_path)
+        else:
+            # Try to fetch directly via SSH if kubespray not available
+            print("Kubespray not available, attempting direct SSH fetch...")
+            return self._fetch_kubeconfig_via_ssh(target_path)
+    
     def configure_management_kubeconfig(self, refresh_config=False):
         """Configure management machine kubectl for optimal HA access"""
         print("\nPhase 6.5: Management Machine Configuration")
@@ -820,117 +963,6 @@ skip_verify_kube_groups: true
         else:  # external or fallback
             print("External HA mode: Using external load balancer")
             return self._configure_vip_kubeconfig(refresh_config, "10.10.1.30")
-        temp_kubeconfig = Path.home() / ".kube" / "config-k8s-proxmox"
-        default_kubeconfig = Path.home() / ".kube" / "config"
-        
-        # If refreshing or no existing config, fetch fresh kubeconfig
-        if refresh_config or not temp_kubeconfig.exists():
-            print("Fetching fresh kubeconfig from cluster...")
-            
-            # Check if we have kubespray environment to fetch config
-            if self.kubespray_dir.exists():
-                ansible_path = self.venv_dir / "bin" / "ansible"
-                inventory_file = self.kubespray_dir / "inventory" / "proxmox-cluster" / "inventory.ini"
-                
-                if inventory_file.exists():
-                    # Try ansible first
-                    result = self.run_command(
-                        [str(ansible_path), "-i", str(inventory_file),
-                         "kube_control_plane[0]", "-m", "fetch",
-                         "-a", "src=/etc/kubernetes/admin.conf dest=/tmp/kubeconfig-fresh flat=yes"],
-                        "Fetching fresh kubeconfig from control plane",
-                        cwd=self.kubespray_dir,
-                        check=False
-                    )
-                    
-                    # If ansible succeeded, use the result
-                    if result.returncode == 0 and Path("/tmp/kubeconfig-fresh").exists():
-                        shutil.copy("/tmp/kubeconfig-fresh", temp_kubeconfig)
-                        temp_kubeconfig.chmod(0o600)
-                        print("Fresh kubeconfig fetched via Ansible")
-                    else:
-                        print("Ansible fetch failed, trying direct SSH...")
-                        # Fall back to direct SSH
-                        self._fetch_kubeconfig_via_ssh(temp_kubeconfig)
-                else:
-                    print("Warning: Kubespray inventory not found, trying direct SSH...")
-                    self._fetch_kubeconfig_via_ssh(temp_kubeconfig)
-            else:
-                # Try to fetch directly via SSH if kubespray not available
-                print("Kubespray not available, attempting direct SSH fetch...")
-                self._fetch_kubeconfig_via_ssh(temp_kubeconfig)
-        
-        if not temp_kubeconfig.exists():
-            print("Error: No kubeconfig available. Run full deployment first.")
-            return False
-            
-        # Read current kubeconfig
-        kubeconfig_content = temp_kubeconfig.read_text()
-        
-        # Replace server URL to point to VIP instead of individual control plane node
-        # This ensures HA access through the load balancer
-        updated_content = kubeconfig_content
-        
-        # Handle all possible control plane IPs
-        for control_ip in ["10.10.1.31", "10.10.1.32", "10.10.1.33"]:
-            updated_content = updated_content.replace(
-                f"https://{control_ip}:6443",
-                f"https://{vip_address}:6443"
-            )
-        
-        # Write updated kubeconfig to both temp and default locations
-        temp_kubeconfig.write_text(updated_content)
-        
-        # Also create/update the default kubeconfig so kubectl works without KUBECONFIG export
-        kube_dir = Path.home() / ".kube"
-        kube_dir.mkdir(exist_ok=True)
-        default_kubeconfig.write_text(updated_content)
-        default_kubeconfig.chmod(0o600)
-        
-        print(f"Updated kubeconfig to use VIP: {vip_address}")
-        print(f"Default kubeconfig configured at: {default_kubeconfig}")
-        
-        # Test connectivity to VIP (fallback to direct control plane if VIP fails)
-        result = self.run_command(
-            "kubectl cluster-info",
-            "Testing kubectl connectivity via VIP",
-            check=False
-        )
-        
-        if result.returncode == 0:
-            print(f"Successfully configured kubectl to use VIP {vip_address}")
-            self.setup_shell_environment(default_kubeconfig)
-            return True
-        else:
-            print(f"Warning: kubectl connectivity test failed via VIP {vip_address}")
-            
-            # Try to create a working config pointing directly to control plane as fallback
-            print("Creating fallback configuration pointing to control plane node...")
-            fallback_content = kubeconfig_content.replace(
-                f"https://{vip_address}:6443",
-                "https://10.10.1.31:6443"  # Fallback to first control plane
-            )
-            
-            fallback_path = Path.home() / ".kube" / "config-direct"
-            fallback_path.write_text(fallback_content)
-            fallback_path.chmod(0o600)
-            
-            # Test fallback
-            result = self.run_command(
-                f"KUBECONFIG={fallback_path} kubectl cluster-info",
-                "Testing direct control plane connectivity",
-                check=False
-            )
-            
-            if result.returncode == 0:
-                print("Direct control plane access working")
-                print(f"VIP config: {default_kubeconfig} (use when HAProxy is ready)")
-                print(f"Direct config: {fallback_path} (working now)")
-                self.setup_shell_environment(default_kubeconfig, fallback_path)
-            else:
-                print("Warning: Both VIP and direct access failed")
-                
-            return False
             
     def setup_shell_environment(self, primary_kubeconfig_path, fallback_kubeconfig_path=None):
         """Setup shell environment for kubectl access"""
@@ -1125,10 +1157,9 @@ function kube-default() {{
         except (json.JSONDecodeError, KeyError, subprocess.CalledProcessError):
             pass
         
-        # Last resort: correct hardcoded fallback based on user specification
+        # Last resort: correct hardcoded fallback based on HA mode
         print("   Using fallback VM placement mapping")
-        return {
-            130: "node4",  # k8s-haproxy-lb  
+        fallback_mapping = {
             131: "node1",  # k8s-control-1
             132: "node2",  # k8s-control-2  
             133: "node3",  # k8s-control-3
@@ -1137,6 +1168,12 @@ function kube-default() {{
             142: "node3",  # k8s-worker-3
             143: "node4"   # k8s-worker-4
         }
+        
+        # Add HAProxy VM only for external HA mode
+        if hasattr(self, 'ha_mode') and self.ha_mode == "external":
+            fallback_mapping[130] = "node4"  # k8s-haproxy-lb
+            
+        return fallback_mapping
         
     def verify_existing_vms(self):
         """Verify existing VMs without destructive actions"""
@@ -1148,6 +1185,10 @@ function kube-default() {{
         
         # Get VM placement from Terraform configuration
         vm_placement = self.get_vm_placement_from_terraform()
+        
+        # Filter VM placement based on HA mode
+        if self.ha_mode != "external" and 130 in vm_placement:
+            del vm_placement[130]  # Remove HAProxy VM for non-external HA modes
         
         missing_vms = []
         stopped_vms = []
@@ -1407,8 +1448,11 @@ function kube-default() {{
         # Phase 6.5: Configure management machine
         self.configure_management_kubeconfig(refresh_config=self.force_recreate)
         
-        # Phase 6.75: Setup HAProxy load balancer
-        self.setup_haproxy()
+        # Phase 6.75: Setup HAProxy load balancer (only for external HA mode)
+        if self.ha_mode == "external":
+            self.setup_haproxy()
+        else:
+            print("\nSkipping HAProxy setup (using built-in HA mode: " + self.ha_mode + ")")
         
         # Phase 7: Verify
         self.verify_cluster()
@@ -1459,8 +1503,11 @@ function kube-default() {{
         # Phase 6.5: Configure management machine
         self.configure_management_kubeconfig(refresh_config=self.force_recreate)
         
-        # Phase 6.75: Setup HAProxy load balancer
-        self.setup_haproxy()
+        # Phase 6.75: Setup HAProxy load balancer (only for external HA mode)
+        if self.ha_mode == "external":
+            self.setup_haproxy()
+        else:
+            print("\nSkipping HAProxy setup (using built-in HA mode: " + self.ha_mode + ")")
         
         # Phase 7: Verify
         self.verify_cluster()
