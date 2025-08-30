@@ -121,64 +121,92 @@ class ClusterDeployer:
                 sys.exit(1)
             return e
             
-    def manual_vm_cleanup(self):
-        """Manually clean up any existing VMs on all Proxmox nodes"""
-        print("\nPhase -1: Manual VM Cleanup")
-        print("=" * 50)
+    def discover_existing_vms(self):
+        """Discover which VMs actually exist on the Proxmox cluster"""
+        print("Discovering existing VMs across all nodes...")
+        existing_vms = {}  # vm_id -> node_name mapping
         
         for node in self.proxmox_nodes:
-            print(f"\nCleaning up VMs on {node}...")
+            print(f"Checking node {node}...")
             
-            for vm_id in self.vm_ids:
-                # Check if VM exists
-                result = self.run_command(
-                    f"ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 root@{node} 'qm status {vm_id} 2>/dev/null || echo \"not found\"'",
-                    f"Checking VM {vm_id} on {node}",
-                    check=False,
-                    timeout=10
-                )
-                
-                if result and result.returncode == 0:
-                    if "not found" not in result.stdout and "does not exist" not in result.stdout:
-                        print(f"   Found VM {vm_id} on {node}, removing...")
-                        
-                        # Stop VM if running
-                        self.run_command(
-                            f"ssh -o StrictHostKeyChecking=no root@{node} 'qm stop {vm_id} --skiplock || true'",
-                            f"Stopping VM {vm_id}",
-                            check=False,
-                            timeout=30
-                        )
-                        
-                        # Wait a moment for shutdown
-                        time.sleep(2)
-                        
-                        # Force destroy VM
-                        self.run_command(
-                            f"ssh -o StrictHostKeyChecking=no root@{node} 'qm destroy {vm_id} --skiplock --purge || true'",
-                            f"Destroying VM {vm_id}",
-                            check=False,
-                            timeout=30
-                        )
-                        
-                        # Clean up any leftover config files
-                        self.run_command(
-                            f"ssh -o StrictHostKeyChecking=no root@{node} 'rm -f /etc/pve/nodes/{node}/qemu-server/{vm_id}.conf /etc/pve/qemu-server/{vm_id}.conf || true'",
-                            f"Cleaning up config files for VM {vm_id}",
-                            check=False,
-                            timeout=10
-                        )
-                        
-                    else:
-                        print(f"   VM {vm_id} not found on {node}")
-                else:
-                    print(f"   Could not check VM {vm_id} on {node} (node may be unreachable)")
+            # Get list of all VMs on this node that match our target VM IDs
+            vm_ids_pattern = '|'.join(map(str, self.vm_ids))
+            result = self.run_command(
+                f"ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 root@{node} 'qm list | grep -E \"({vm_ids_pattern})\" | awk \"{{print $1}}\" || true'",
+                f"Listing target VMs on {node}",
+                check=False,
+                timeout=10
+            )
+            
+            if result and result.returncode == 0 and result.stdout.strip():
+                found_vms = [int(vm_id.strip()) for vm_id in result.stdout.strip().split('\n') if vm_id.strip().isdigit()]
+                for vm_id in found_vms:
+                    if vm_id in self.vm_ids:
+                        existing_vms[vm_id] = node
+                        print(f"   Found VM {vm_id} on {node}")
+            elif result and result.returncode != 0:
+                print(f"   Could not check node {node} (may be unreachable)")
+            else:
+                print(f"   No target VMs found on {node}")
         
-        print("\nManual VM cleanup completed")
+        return existing_vms
+    
+    def manual_vm_cleanup(self):
+        """Optimized VM cleanup - only remove VMs that actually exist"""
+        print("\nPhase -1: Smart VM Cleanup")
+        print("=" * 50)
+        
+        # First, discover which VMs actually exist
+        existing_vms = self.discover_existing_vms()
+        
+        if not existing_vms:
+            print("\nNo existing VMs found - skipping cleanup phase")
+            return
+        
+        print(f"\nFound {len(existing_vms)} VMs to clean up:")
+        for vm_id, node in existing_vms.items():
+            print(f"   VM {vm_id} on {node}")
+        
+        print("\nRemoving existing VMs...")
+        
+        for vm_id, node in existing_vms.items():
+            print(f"\nRemoving VM {vm_id} from {node}...")
+            
+            # Stop VM if running
+            self.run_command(
+                f"ssh -o StrictHostKeyChecking=no root@{node} 'qm stop {vm_id} --skiplock || true'",
+                f"Stopping VM {vm_id}",
+                check=False,
+                timeout=30
+            )
+            
+            # Wait a moment for shutdown
+            time.sleep(2)
+            
+            # Force destroy VM
+            self.run_command(
+                f"ssh -o StrictHostKeyChecking=no root@{node} 'qm destroy {vm_id} --skiplock --purge || true'",
+                f"Destroying VM {vm_id}",
+                check=False,
+                timeout=30
+            )
+            
+            # Clean up any leftover config files
+            self.run_command(
+                f"ssh -o StrictHostKeyChecking=no root@{node} 'rm -f /etc/pve/nodes/{node}/qemu-server/{vm_id}.conf /etc/pve/qemu-server/{vm_id}.conf || true'",
+                f"Cleaning up config files for VM {vm_id}",
+                check=False,
+                timeout=10
+            )
+            
+            print(f"   VM {vm_id} removed from {node}")
+        
+        print(f"\nSmart VM cleanup completed - removed {len(existing_vms)} VMs")
         
         # Wait for cleanup to settle
-        print("Waiting 10 seconds for cleanup to settle...")
-        time.sleep(10)
+        if existing_vms:
+            print("Waiting 10 seconds for cleanup to settle...")
+            time.sleep(10)
         
     def reset_terraform(self):
         """Reset Terraform state completely"""
@@ -1180,25 +1208,25 @@ function kube-default() {{
         print("\nVM Verification Mode")
         print("=" * 50)
         
-        # First, check if VMs exist on Proxmox hypervisors
-        print("Checking VM status on Proxmox hypervisors...")
+        # Use optimized discovery to find existing VMs
+        existing_vms = self.discover_existing_vms()
         
-        # Get VM placement from Terraform configuration
-        vm_placement = self.get_vm_placement_from_terraform()
+        if not existing_vms:
+            print("\nNo VMs found on any nodes")
+            print("   Run full deployment to create cluster")
+            sys.exit(1)
         
-        # Filter VM placement based on HA mode
-        if self.ha_mode != "external" and 130 in vm_placement:
-            del vm_placement[130]  # Remove HAProxy VM for non-external HA modes
+        print(f"\nFound {len(existing_vms)} VMs:")
+        for vm_id, node in existing_vms.items():
+            print(f"   VM {vm_id} on {node}")
         
-        missing_vms = []
-        stopped_vms = []
+        # Check status of found VMs
         running_vms = []
+        stopped_vms = []
         
-        for vm_id, expected_node in vm_placement.items():
-            print(f"Checking VM {vm_id} on {expected_node}...")
-            
+        for vm_id, node in existing_vms.items():
             result = self.run_command(
-                f"ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 root@{expected_node} 'qm status {vm_id} 2>/dev/null'",
+                f"ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 root@{node} 'qm status {vm_id} 2>/dev/null'",
                 f"Checking VM {vm_id} status",
                 check=False,
                 timeout=10
@@ -1206,16 +1234,22 @@ function kube-default() {{
             
             if result and result.returncode == 0:
                 if "status: running" in result.stdout:
-                    print(f"   VM {vm_id} is running on {expected_node}")
+                    print(f"   VM {vm_id} is running on {node}")
                     running_vms.append(vm_id)
                 elif "status: stopped" in result.stdout:
-                    print(f"   VM {vm_id} exists but is stopped on {expected_node}")
+                    print(f"   VM {vm_id} exists but is stopped on {node}")
                     stopped_vms.append(vm_id)
                 else:
                     print(f"   VM {vm_id} has unknown status: {result.stdout.strip()}")
             else:
-                print(f"   VM {vm_id} not found on {expected_node}")
-                missing_vms.append(vm_id)
+                print(f"   Could not get status for VM {vm_id} on {node}")
+        
+        # Check expected vs found VMs
+        expected_vm_count = len(self.vm_ids)
+        found_vm_count = len(existing_vms)
+        missing_vm_count = expected_vm_count - found_vm_count
+        
+        missing_vms = [vm_id for vm_id in self.vm_ids if vm_id not in existing_vms]
         
         # Report VM status summary
         print(f"\nVM Status Summary:")
@@ -1240,9 +1274,8 @@ function kube-default() {{
         if running_vms:
             print(f"\nTesting SSH connectivity to {len(running_vms)} running VMs...")
             
-            # Map VM IDs to IPs and names
+            # Map VM IDs to IPs and names (dynamic based on HA mode)
             vm_info = {
-                130: ("k8s-haproxy-lb", "10.10.1.30"),
                 131: ("k8s-control-1", "10.10.1.31"),
                 132: ("k8s-control-2", "10.10.1.32"), 
                 133: ("k8s-control-3", "10.10.1.33"),
@@ -1251,6 +1284,10 @@ function kube-default() {{
                 142: ("k8s-worker-3", "10.10.1.42"),
                 143: ("k8s-worker-4", "10.10.1.43")
             }
+            
+            # Add HAProxy VM only for external HA mode
+            if self.ha_mode == "external":
+                vm_info[130] = ("k8s-haproxy-lb", "10.10.1.30")
             
             ssh_failed = []
             for vm_id in running_vms:
