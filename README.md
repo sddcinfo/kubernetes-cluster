@@ -70,7 +70,7 @@ Infrastructure Services     (10.10.1.1-29)
 
 Kubernetes Cluster         (10.10.1.30-99)
 ├── Load Balancer          (10.10.1.30)
-│   └── 10.10.1.30          k8s-haproxy (HAProxy LB for API)
+│   └── 10.10.1.30          k8s-vip.sddc.info (HAProxy LB for API)
 ├── Control Plane          (10.10.1.31-39)
 │   └── 10.10.1.31-33       k8s-control-1 through k8s-control-3
 ├── Worker Nodes           (10.10.1.40-49)
@@ -151,7 +151,7 @@ The system uses a structured IP allocation strategy:
 
 | Range | Purpose | Example |
 |-------|---------|---------|
-| 10.10.1.30 | HAProxy Load Balancer | k8s-haproxy.sddc.info |
+| 10.10.1.30 | HAProxy Load Balancer | k8s-vip.sddc.info |
 | 10.10.1.31-33 | Control Plane Nodes | k8s-control-1.sddc.info |
 | 10.10.1.40-49 | Worker Nodes | k8s-worker-1.sddc.info |
 | 10.10.1.50-79 | MetalLB LoadBalancer Pool | ingress.k8s.sddc.info |
@@ -236,7 +236,7 @@ This creates optimized inventory configuration with:
 ### Cluster Topology
 - **Control Plane Nodes**: 3 nodes (k8s-control-1 through k8s-control-3)
 - **Worker Nodes**: 4 nodes (k8s-worker-1 through k8s-worker-4)
-- **Load Balancer**: HAProxy on k8s-haproxy (10.10.1.30)
+- **Load Balancer**: HAProxy on k8s-vip.sddc.info (10.10.1.30)
 - **Total Nodes**: 7 nodes, all in Ready status
 
 ### High Availability Configuration
