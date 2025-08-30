@@ -1,7 +1,7 @@
 # Kubernetes Cluster Automation
 
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Kubernetes](https://img.shields.io/badge/Kubernetes-1.30.4-326CE5?logo=kubernetes&logoColor=white)](https://kubernetes.io/)
+[![Kubernetes](https://img.shields.io/badge/Kubernetes-1.32.8-326CE5?logo=kubernetes&logoColor=white)](https://kubernetes.io/)
 [![Kubespray](https://img.shields.io/badge/Kubespray-2.28.1-FF6B35)](https://kubespray.io/)
 [![Proxmox](https://img.shields.io/badge/Proxmox_VE-8.0+-E57000?logo=proxmox&logoColor=white)](https://www.proxmox.com/)
 
@@ -55,7 +55,7 @@ The solution deploys a production-grade Kubernetes cluster with the following to
 
 - **Control Plane**: 3 nodes with stacked etcd for high availability
 - **Worker Nodes**: 4+ nodes with configurable scaling
-- **Load Balancer**: HAProxy + Keepalived for control plane access
+- **Load Balancer**: HAProxy for control plane access
 - **Network**: Cilium CNI with eBPF dataplane and optional BGP
 - **Storage**: Proxmox CSI with Ceph RBD integration
 
@@ -69,8 +69,9 @@ Infrastructure Services     (10.10.1.1-29)
 └── 10.10.1.21-24           node1-4 (Proxmox hypervisors)
 
 Kubernetes Cluster         (10.10.1.30-99)
-├── Control Plane          (10.10.1.30-39)
-│   ├── 10.10.1.30          k8s-vip (Virtual IP)
+├── Load Balancer          (10.10.1.30)
+│   └── 10.10.1.30          k8s-haproxy (HAProxy LB for API)
+├── Control Plane          (10.10.1.31-39)
 │   └── 10.10.1.31-33       k8s-control-1 through k8s-control-3
 ├── Worker Nodes           (10.10.1.40-49)
 │   ├── 10.10.1.40-43       k8s-worker-1 through k8s-worker-4
@@ -150,7 +151,7 @@ The system uses a structured IP allocation strategy:
 
 | Range | Purpose | Example |
 |-------|---------|---------|
-| 10.10.1.30 | Control Plane VIP | k8s-vip.sddc.info |
+| 10.10.1.30 | HAProxy Load Balancer | k8s-haproxy.sddc.info |
 | 10.10.1.31-33 | Control Plane Nodes | k8s-control-1.sddc.info |
 | 10.10.1.40-49 | Worker Nodes | k8s-worker-1.sddc.info |
 | 10.10.1.50-79 | MetalLB LoadBalancer Pool | ingress.k8s.sddc.info |
@@ -221,12 +222,55 @@ This creates optimized inventory configuration with:
 
 ## Operations
 
+## Current Deployment Status
+
+**Cluster Milestone: Production-Ready Kubernetes Cluster Deployed** (August 30, 2025)
+
+### Deployed Infrastructure
+- **Kubernetes Version**: v1.32.8 (latest stable)
+- **Kubespray Version**: v2.28.1 
+- **Container Network**: Cilium v1.17.7 with eBPF dataplane
+- **Container Runtime**: containerd v2.0.6
+- **Operating System**: Ubuntu 24.04.3 LTS (6.8.0-71-generic kernel)
+
+### Cluster Topology
+- **Control Plane Nodes**: 3 nodes (k8s-control-1 through k8s-control-3)
+- **Worker Nodes**: 4 nodes (k8s-worker-1 through k8s-worker-4)
+- **Load Balancer**: HAProxy on k8s-haproxy (10.10.1.30)
+- **Total Nodes**: 7 nodes, all in Ready status
+
+### High Availability Configuration
+- **API Server Load Balancing**: HAProxy distributing traffic across 3 control plane nodes
+- **etcd Cluster**: 3-node etcd cluster with stacked topology
+- **Control Plane**: Multi-master setup with leader election
+- **Network**: Cilium CNI with Hubble observability enabled
+
+### Verified Functionality
+- ✅ All nodes operational and in Ready state
+- ✅ HAProxy load balancer functional (port 6443)
+- ✅ Cilium networking operational across all nodes
+- ✅ CoreDNS cluster DNS resolution working
+- ✅ Pod scheduling and inter-pod networking verified
+- ✅ Kubernetes API accessible through load balancer
+- ✅ All system components running (kube-system namespace)
+
+### Access Methods
+- **Direct API Access**: First control plane node (10.10.1.31:6443)
+- **Load Balanced API**: HAProxy VIP (10.10.1.30:6443) - requires --insecure-skip-tls-verify
+- **HAProxy Stats**: http://10.10.1.30:8080/stats
+
 ### Cluster Access
 
 ```bash
-# Configure kubectl access
-export KUBECONFIG=~/.kube/config-k8s-cluster
+# Direct connection to control plane
+export KUBECONFIG=~/.kube/config-direct
 kubectl get nodes
+
+# Load balanced connection (insecure mode due to certificate SAN)
+kubectl --insecure-skip-tls-verify get nodes
+
+# Cluster information
+kubectl cluster-info
 ```
 
 ### Management Interfaces
