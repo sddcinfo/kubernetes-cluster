@@ -14,8 +14,8 @@ from pathlib import Path
 
 class ClusterDeployer:
     def __init__(self, verify_only=False, infrastructure_only=False, kubespray_only=False, 
-                 kubernetes_only=False, skip_cleanup=False, skip_terraform_reset=False, 
-                 force_recreate=False):
+                 kubernetes_only=False, configure_mgmt_only=False, refresh_kubeconfig=False,
+                 skip_cleanup=False, skip_terraform_reset=False, force_recreate=False):
         self.project_dir = Path(__file__).parent.parent
         self.terraform_dir = self.project_dir / "terraform"
         self.kubespray_version = "v2.28.1"
@@ -32,6 +32,8 @@ class ClusterDeployer:
         self.infrastructure_only = infrastructure_only
         self.kubespray_only = kubespray_only
         self.kubernetes_only = kubernetes_only
+        self.configure_mgmt_only = configure_mgmt_only
+        self.refresh_kubeconfig = refresh_kubeconfig
         self.skip_cleanup = skip_cleanup
         self.skip_terraform_reset = skip_terraform_reset
         self.force_recreate = force_recreate
@@ -631,6 +633,206 @@ kubelet_rotate_server_certificates: true
         print("Set environment variable:")
         print(f"   export KUBECONFIG={kubeconfig_path}")
         
+    def _fetch_kubeconfig_via_ssh(self, temp_kubeconfig):
+        """Helper method to fetch kubeconfig via direct SSH"""
+        # Try each control plane node
+        for control_ip in ["10.10.1.31", "10.10.1.32", "10.10.1.33"]:
+            print(f"Attempting SSH fetch from {control_ip}...")
+            result = self.run_command(
+                f"scp -o StrictHostKeyChecking=no -o ConnectTimeout=5 -i /home/sysadmin/.ssh/sysadmin_automation_key sysadmin@{control_ip}:/etc/kubernetes/admin.conf /tmp/kubeconfig-fresh",
+                f"Fetching kubeconfig via SSH from {control_ip}",
+                check=False
+            )
+            
+            if result.returncode == 0 and Path("/tmp/kubeconfig-fresh").exists():
+                shutil.copy("/tmp/kubeconfig-fresh", temp_kubeconfig)
+                temp_kubeconfig.chmod(0o600)
+                print(f"Fresh kubeconfig fetched via SSH from {control_ip}")
+                return True
+                
+        print("Could not fetch fresh kubeconfig via SSH, using existing if available")
+        return False
+        
+    def configure_management_kubeconfig(self, refresh_config=False):
+        """Configure management machine with kubectl pointing to VIP"""
+        print("\nPhase 6.5: Management Machine Configuration")
+        print("=" * 50)
+        
+        vip_address = "10.10.1.30"  # HAProxy VIP for control plane access
+        temp_kubeconfig = Path.home() / ".kube" / "config-k8s-proxmox"
+        default_kubeconfig = Path.home() / ".kube" / "config"
+        
+        # If refreshing or no existing config, fetch fresh kubeconfig
+        if refresh_config or not temp_kubeconfig.exists():
+            print("Fetching fresh kubeconfig from cluster...")
+            
+            # Check if we have kubespray environment to fetch config
+            if self.kubespray_dir.exists():
+                ansible_path = self.venv_dir / "bin" / "ansible"
+                inventory_file = self.kubespray_dir / "inventory" / "proxmox-cluster" / "inventory.ini"
+                
+                if inventory_file.exists():
+                    # Try ansible first
+                    result = self.run_command(
+                        [str(ansible_path), "-i", str(inventory_file),
+                         "kube_control_plane[0]", "-m", "fetch",
+                         "-a", "src=/etc/kubernetes/admin.conf dest=/tmp/kubeconfig-fresh flat=yes"],
+                        "Fetching fresh kubeconfig from control plane",
+                        cwd=self.kubespray_dir,
+                        check=False
+                    )
+                    
+                    # If ansible succeeded, use the result
+                    if result.returncode == 0 and Path("/tmp/kubeconfig-fresh").exists():
+                        shutil.copy("/tmp/kubeconfig-fresh", temp_kubeconfig)
+                        temp_kubeconfig.chmod(0o600)
+                        print("Fresh kubeconfig fetched via Ansible")
+                    else:
+                        print("Ansible fetch failed, trying direct SSH...")
+                        # Fall back to direct SSH
+                        self._fetch_kubeconfig_via_ssh(temp_kubeconfig)
+                else:
+                    print("Warning: Kubespray inventory not found, trying direct SSH...")
+                    self._fetch_kubeconfig_via_ssh(temp_kubeconfig)
+            else:
+                # Try to fetch directly via SSH if kubespray not available
+                print("Kubespray not available, attempting direct SSH fetch...")
+                self._fetch_kubeconfig_via_ssh(temp_kubeconfig)
+        
+        if not temp_kubeconfig.exists():
+            print("Error: No kubeconfig available. Run full deployment first.")
+            return False
+            
+        # Read current kubeconfig
+        kubeconfig_content = temp_kubeconfig.read_text()
+        
+        # Replace server URL to point to VIP instead of individual control plane node
+        # This ensures HA access through the load balancer
+        updated_content = kubeconfig_content
+        
+        # Handle all possible control plane IPs
+        for control_ip in ["10.10.1.31", "10.10.1.32", "10.10.1.33"]:
+            updated_content = updated_content.replace(
+                f"https://{control_ip}:6443",
+                f"https://{vip_address}:6443"
+            )
+        
+        # Write updated kubeconfig to both temp and default locations
+        temp_kubeconfig.write_text(updated_content)
+        
+        # Also create/update the default kubeconfig so kubectl works without KUBECONFIG export
+        kube_dir = Path.home() / ".kube"
+        kube_dir.mkdir(exist_ok=True)
+        default_kubeconfig.write_text(updated_content)
+        default_kubeconfig.chmod(0o600)
+        
+        print(f"Updated kubeconfig to use VIP: {vip_address}")
+        print(f"Default kubeconfig configured at: {default_kubeconfig}")
+        
+        # Test connectivity to VIP (fallback to direct control plane if VIP fails)
+        result = self.run_command(
+            "kubectl cluster-info",
+            "Testing kubectl connectivity via VIP",
+            check=False
+        )
+        
+        if result.returncode == 0:
+            print(f"Successfully configured kubectl to use VIP {vip_address}")
+            self.setup_shell_environment(default_kubeconfig)
+            return True
+        else:
+            print(f"Warning: kubectl connectivity test failed via VIP {vip_address}")
+            
+            # Try to create a working config pointing directly to control plane as fallback
+            print("Creating fallback configuration pointing to control plane node...")
+            fallback_content = kubeconfig_content.replace(
+                f"https://{vip_address}:6443",
+                "https://10.10.1.31:6443"  # Fallback to first control plane
+            )
+            
+            fallback_path = Path.home() / ".kube" / "config-direct"
+            fallback_path.write_text(fallback_content)
+            fallback_path.chmod(0o600)
+            
+            # Test fallback
+            result = self.run_command(
+                f"KUBECONFIG={fallback_path} kubectl cluster-info",
+                "Testing direct control plane connectivity",
+                check=False
+            )
+            
+            if result.returncode == 0:
+                print("Direct control plane access working")
+                print(f"VIP config: {default_kubeconfig} (use when HAProxy is ready)")
+                print(f"Direct config: {fallback_path} (working now)")
+                self.setup_shell_environment(default_kubeconfig, fallback_path)
+            else:
+                print("Warning: Both VIP and direct access failed")
+                
+            return False
+            
+    def setup_shell_environment(self, primary_kubeconfig_path, fallback_kubeconfig_path=None):
+        """Setup shell environment for kubectl access"""
+        print("\nConfiguring shell environment...")
+        
+        bashrc_path = Path.home() / ".bashrc"
+        
+        # Create kubectl alias for convenience
+        kubectl_alias = "alias k=kubectl"
+        
+        # Read existing bashrc content or create empty
+        if bashrc_path.exists():
+            bashrc_content = bashrc_path.read_text()
+        else:
+            bashrc_content = ""
+            
+        # Add kubectl alias if not present
+        if "alias k=kubectl" not in bashrc_content:
+            with open(bashrc_path, "a") as f:
+                f.write(f"\n# Kubectl alias\n{kubectl_alias}\n")
+            print("   Added kubectl alias 'k' to .bashrc")
+        else:
+            print("   kubectl alias 'k' already configured in .bashrc")
+            
+        # Add helpful functions for switching between configs if fallback exists
+        if fallback_kubeconfig_path:
+            kubectl_functions = f'''\n# Kubernetes configuration switching functions
+function kube-vip() {{
+    export KUBECONFIG={primary_kubeconfig_path}
+    echo "Switched to VIP configuration (HAProxy load balancer)"
+}}
+
+function kube-direct() {{
+    export KUBECONFIG={fallback_kubeconfig_path}
+    echo "Switched to direct control plane configuration"
+}}
+
+function kube-default() {{
+    unset KUBECONFIG
+    echo "Using default kubeconfig (~/.kube/config)"
+}}
+'''
+            
+            if "function kube-vip()" not in bashrc_content:
+                with open(bashrc_path, "a") as f:
+                    f.write(kubectl_functions)
+                print("   Added kubeconfig switching functions to .bashrc")
+            
+        print("\nManagement machine configuration completed!")
+        print("\nkubectl is configured to use the default config location (~/.kube/config)")
+        print("No KUBECONFIG export needed - kubectl will work immediately!")
+        
+        if fallback_kubeconfig_path:
+            print("\nConfiguration switching functions available:")
+            print("   kube-default  # Use default config (VIP)")
+            print("   kube-vip      # Use VIP config explicitly")
+            print("   kube-direct   # Use direct control plane config")
+            
+        print("\nUseful commands:")
+        print("   kubectl get nodes")
+        print("   kubectl get pods -A")
+        print("   k get nodes  # Using alias")
+        
     def verify_cluster(self):
         """Verify Kubernetes cluster is working"""
         print("\nPhase 7: Cluster Verification")
@@ -884,6 +1086,8 @@ kubelet_rotate_server_certificates: true
             self.run_kubespray_only()
         elif self.kubernetes_only:
             self.run_kubernetes_only()
+        elif self.configure_mgmt_only:
+            self.run_configure_mgmt_only()
         else:
             self.run_full_deployment()
             
@@ -913,7 +1117,26 @@ kubelet_rotate_server_certificates: true
         print("\nNext steps:")
         print("1. Run with --kubespray-only to setup Kubespray")
         print("2. Run with --kubernetes-only to deploy Kubernetes")
-        print("3. Or run without flags for remaining phases")
+        print("3. Run with --configure-mgmt-only to configure kubectl")
+        print("4. Or run without flags for remaining phases")
+        
+    def run_configure_mgmt_only(self):
+        """Configure management machine kubectl only"""
+        print("Management Configuration Only")
+        print("=" * 50)
+        
+        # Configure management machine (with refresh option)
+        success = self.configure_management_kubeconfig(refresh_config=self.refresh_kubeconfig)
+        
+        if success:
+            print("\n" + "=" * 50)
+            print("Management machine configuration completed!")
+            print("=" * 50)
+            print("\nkubectl is now configured to use VIP (10.10.1.30)")
+            print("Test with: kubectl get nodes")
+        else:
+            print("\nManagement configuration completed with warnings.")
+            print("kubectl may work once HAProxy is fully configured.")
         
     def run_kubespray_only(self):
         """Setup and configure Kubespray only"""
@@ -935,7 +1158,8 @@ kubelet_rotate_server_certificates: true
         print("=" * 50)
         print("\nNext steps:")
         print("1. Run with --kubernetes-only to deploy Kubernetes")
-        print("2. Or run without flags for remaining phases")
+        print("2. Run with --configure-mgmt-only to configure kubectl")
+        print("3. Or run without flags for remaining phases")
         
     def run_kubernetes_only(self):
         """Deploy Kubernetes cluster only (assumes infrastructure exists)"""
@@ -965,6 +1189,9 @@ kubelet_rotate_server_certificates: true
         # Phase 6: Setup kubeconfig
         self.setup_kubeconfig()
         
+        # Phase 6.5: Configure management machine
+        self.configure_management_kubeconfig(refresh_config=self.force_recreate)
+        
         # Phase 7: Verify
         self.verify_cluster()
         
@@ -972,7 +1199,7 @@ kubelet_rotate_server_certificates: true
         print("Kubernetes deployment completed!")
         print("=" * 50)
         print("\nNext steps:")
-        print("1. Set KUBECONFIG: export KUBECONFIG=~/.kube/config-k8s-proxmox")
+        print("1. kubectl is configured to use VIP (10.10.1.30)")
         print("2. Verify cluster: kubectl get nodes")
         print("3. Deploy applications: kubectl apply -f your-app.yaml")
         
@@ -1011,6 +1238,9 @@ kubelet_rotate_server_certificates: true
         # Phase 6: Setup kubeconfig
         self.setup_kubeconfig()
         
+        # Phase 6.5: Configure management machine
+        self.configure_management_kubeconfig(refresh_config=self.force_recreate)
+        
         # Phase 7: Verify
         self.verify_cluster()
         
@@ -1018,7 +1248,7 @@ kubelet_rotate_server_certificates: true
         print("Full Kubernetes cluster deployment completed successfully!")
         print("=" * 50)
         print("\nNext steps:")
-        print("1. Set KUBECONFIG: export KUBECONFIG=~/.kube/config-k8s-proxmox")
+        print("1. kubectl is configured to use VIP (10.10.1.30)")
         print("2. Verify cluster: kubectl get nodes")
         print("3. Deploy applications: kubectl apply -f your-app.yaml")
         
@@ -1038,6 +1268,10 @@ def main():
                        help="Setup and configure Kubespray only")
     parser.add_argument("--kubernetes-only", action="store_true",
                        help="Deploy Kubernetes cluster only (assumes infrastructure exists)")
+    parser.add_argument("--configure-mgmt-only", action="store_true", 
+                       help="Configure management machine kubectl to use VIP only")
+    parser.add_argument("--refresh-kubeconfig", action="store_true",
+                       help="Refresh kubeconfig from cluster when configuring management")
     
     # Phase control flags
     parser.add_argument("--skip-cleanup", action="store_true",
@@ -1050,7 +1284,7 @@ def main():
     args = parser.parse_args()
     
     # Validate argument combinations
-    component_flags = [args.infrastructure_only, args.kubespray_only, args.kubernetes_only]
+    component_flags = [args.infrastructure_only, args.kubespray_only, args.kubernetes_only, args.configure_mgmt_only]
     if sum(component_flags) > 1:
         print("Cannot specify multiple component flags simultaneously")
         sys.exit(1)
@@ -1065,6 +1299,8 @@ def main():
         infrastructure_only=args.infrastructure_only,
         kubespray_only=args.kubespray_only,
         kubernetes_only=args.kubernetes_only,
+        configure_mgmt_only=args.configure_mgmt_only,
+        refresh_kubeconfig=args.refresh_kubeconfig,
         skip_cleanup=args.skip_cleanup,
         skip_terraform_reset=args.skip_terraform_reset,
         force_recreate=args.force_recreate
