@@ -13,12 +13,12 @@ class HAProxySetup:
     def __init__(self, haproxy_ip="10.10.1.30"):
         self.haproxy_ip = haproxy_ip
         self.project_dir = Path(__file__).parent.parent
-        self.haproxy_config_path = self.project_dir / "haproxy.cfg"
+        self.haproxy_config_path = self.project_dir / "configs" / "haproxy.cfg"
         self.ssh_key = "/home/sysadmin/.ssh/sysadmin_automation_key"
         
     def run_command(self, command, description, check=True, timeout=30):
         """Run a command with proper error handling"""
-        print(f"🔄 {description}...")
+        print(f"-> {description}...")
         try:
             result = subprocess.run(
                 command,
@@ -76,6 +76,17 @@ class HAProxySetup:
         """Install HAProxy on the target VM"""
         print("Installing HAProxy...")
         
+        # Check if HAProxy is already installed
+        result = self.run_command(
+            f"ssh -o StrictHostKeyChecking=no -i {self.ssh_key} sysadmin@{self.haproxy_ip} 'dpkg -l | grep haproxy || echo not-installed'",
+            "Checking if HAProxy is already installed",
+            check=False
+        )
+        
+        if result and result.returncode == 0 and "not-installed" not in result.stdout:
+            print("   HAProxy is already installed")
+            return True
+        
         # Update package cache and install HAProxy
         result = self.run_command(
             f"ssh -o StrictHostKeyChecking=no -i {self.ssh_key} sysadmin@{self.haproxy_ip} 'sudo apt update && sudo apt install -y haproxy'",
@@ -99,20 +110,45 @@ class HAProxySetup:
             print(f"   HAProxy config file not found: {self.haproxy_config_path}")
             print("   Creating default configuration...")
             self.create_default_config()
-            
-        # Copy configuration to VM
+        
+        # Check if configuration needs updating by comparing with existing
         result = self.run_command(
-            f"scp -o StrictHostKeyChecking=no -i {self.ssh_key} {self.haproxy_config_path} sysladmin@{self.haproxy_ip}:/tmp/haproxy.cfg",
-            "Copying HAProxy configuration",
+            f"ssh -o StrictHostKeyChecking=no -i {self.ssh_key} sysadmin@{self.haproxy_ip} 'sudo test -f /etc/haproxy/haproxy.cfg && echo exists || echo missing'",
+            "Checking existing HAProxy configuration",
             check=False
         )
         
-        if result.returncode != 0:
-            # Fix typo and retry
-            result = self.run_command(
-                f"scp -o StrictHostKeyChecking=no -i {self.ssh_key} {self.haproxy_config_path} sysadmin@{self.haproxy_ip}:/tmp/haproxy.cfg",
-                "Copying HAProxy configuration (retry)",
+        config_exists = result and result.returncode == 0 and "exists" in result.stdout
+        
+        if config_exists:
+            print("   HAProxy configuration already exists, checking if update needed...")
+            
+            # Get checksum of local config
+            local_checksum = subprocess.run(
+                ["sha256sum", str(self.haproxy_config_path)],
+                capture_output=True, text=True
+            ).stdout.split()[0]
+            
+            # Get checksum of remote config
+            remote_result = self.run_command(
+                f"ssh -o StrictHostKeyChecking=no -i {self.ssh_key} sysadmin@{self.haproxy_ip} 'sudo sha256sum /etc/haproxy/haproxy.cfg'",
+                "Getting remote configuration checksum",
+                check=False
             )
+            
+            if remote_result and remote_result.returncode == 0:
+                remote_checksum = remote_result.stdout.split()[0]
+                if local_checksum == remote_checksum:
+                    print("   HAProxy configuration is up to date, no changes needed")
+                    return True
+                else:
+                    print("   HAProxy configuration differs, updating...")
+            
+        # Copy configuration to VM
+        result = self.run_command(
+            f"scp -o StrictHostKeyChecking=no -i {self.ssh_key} {self.haproxy_config_path} sysadmin@{self.haproxy_ip}:/tmp/haproxy.cfg",
+            "Copying HAProxy configuration"
+        )
         
         # Deploy configuration and restart service
         result = self.run_command(
@@ -148,10 +184,26 @@ class HAProxySetup:
         """Start and enable HAProxy service"""
         print("Starting HAProxy service...")
         
+        # Check if service is already running
         result = self.run_command(
-            f"ssh -o StrictHostKeyChecking=no -i {self.ssh_key} sysadmin@{self.haproxy_ip} 'sudo systemctl enable haproxy && sudo systemctl start haproxy'",
-            "Starting HAProxy service"
+            f"ssh -o StrictHostKeyChecking=no -i {self.ssh_key} sysadmin@{self.haproxy_ip} 'sudo systemctl is-active haproxy || echo inactive'",
+            "Checking HAProxy service status",
+            check=False
         )
+        
+        if result and result.returncode == 0 and "active" in result.stdout:
+            print("   HAProxy service is already running")
+            # Restart to apply any config changes
+            result = self.run_command(
+                f"ssh -o StrictHostKeyChecking=no -i {self.ssh_key} sysadmin@{self.haproxy_ip} 'sudo systemctl restart haproxy'",
+                "Restarting HAProxy service to apply configuration changes"
+            )
+        else:
+            # Enable and start service
+            result = self.run_command(
+                f"ssh -o StrictHostKeyChecking=no -i {self.ssh_key} sysadmin@{self.haproxy_ip} 'sudo systemctl enable haproxy && sudo systemctl start haproxy'",
+                "Starting HAProxy service"
+            )
         
         if result.returncode == 0:
             print("   HAProxy service started successfully")
@@ -307,32 +359,32 @@ frontend stats
         
         # Step 1: Test connectivity
         if not self.test_connectivity():
-            print("\n❌ HAProxy setup failed - connectivity issue")
+            print("\n[FAILED] HAProxy setup failed - connectivity issue")
             return False
             
         # Step 2: Install HAProxy
         if not self.install_haproxy():
-            print("\n❌ HAProxy setup failed - installation failed")
+            print("\n[FAILED] HAProxy setup failed - installation failed")
             return False
             
         # Step 3: Deploy configuration
         if not self.deploy_configuration():
-            print("\n❌ HAProxy setup failed - configuration deployment failed")
+            print("\n[FAILED] HAProxy setup failed - configuration deployment failed")
             return False
             
         # Step 4: Validate configuration
         if not self.validate_configuration():
-            print("\n❌ HAProxy setup failed - configuration validation failed")
+            print("\n[FAILED] HAProxy setup failed - configuration validation failed")
             return False
             
         # Step 5: Start service
         if not self.start_haproxy_service():
-            print("\n❌ HAProxy setup failed - service startup failed")
+            print("\n[FAILED] HAProxy setup failed - service startup failed")
             return False
             
         # Step 6: Verify service
         if not self.verify_service_status():
-            print("\n❌ HAProxy setup failed - service verification failed")
+            print("\n[FAILED] HAProxy setup failed - service verification failed")
             return False
             
         # Wait for service to fully initialize
@@ -341,17 +393,17 @@ frontend stats
         
         # Step 7: Test load balancer
         if not self.test_load_balancer():
-            print("\n⚠️  HAProxy setup completed but load balancer test failed")
+            print("\n[WARNING] HAProxy setup completed but load balancer test failed")
             print("   This may be normal if Kubernetes cluster is not fully ready")
             print("   HAProxy will work once all control plane nodes are available")
         else:
-            print("\n✅ HAProxy load balancer test successful")
+            print("\n[SUCCESS] HAProxy load balancer test successful")
             
         # Step 8: Show stats
         self.get_haproxy_stats()
         
         print("\n" + "=" * 60)
-        print("✅ HAProxy Setup Complete!")
+        print("[SUCCESS] HAProxy Setup Complete!")
         print("=" * 60)
         print(f"HAProxy VIP: {self.haproxy_ip}")
         print(f"Kubernetes API: https://{self.haproxy_ip}:6443")

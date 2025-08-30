@@ -42,7 +42,7 @@ class ClusterDeployer:
         
     def run_command(self, command, description, cwd=None, check=True, timeout=None, log_file=None):
         """Run a command with proper error handling and optional logging"""
-        print(f"🔄 {description}...")
+        print(f"-> {description}...")
         try:
             if log_file:
                 # For long-running commands with logging, use Popen for real-time output
@@ -364,12 +364,12 @@ class ClusterDeployer:
         
     def setup_kubespray(self):
         """Setup Kubespray environment"""
-        print("\n📚 Phase 2: Kubespray Setup")
+        print("\nPhase 2: Kubespray Setup")
         print("=" * 50)
         
         # Clean up existing kubespray directory
         if self.kubespray_dir.exists():
-            print("🗑️ Removing existing Kubespray directory...")
+            print("Removing existing Kubespray directory...")
             shutil.rmtree(self.kubespray_dir)
             
         # Clone Kubespray
@@ -521,7 +521,7 @@ kubelet_rotate_server_certificates: true
         
     def configure_kubespray(self):
         """Configure Kubespray for deployment"""
-        print("\n⚙️ Phase 3: Kubespray Configuration")
+        print("\nPhase 3: Kubespray Configuration")
         print("=" * 50)
         
         # Apply download optimization configuration first
@@ -1196,7 +1196,7 @@ function kube-default() {{
         
     def run_kubespray_only(self):
         """Setup and configure Kubespray only"""
-        print("📚 Kubespray-Only Setup")
+        print("Kubespray-Only Setup")
         print("=" * 50)
         
         # Check if infrastructure exists
@@ -1210,7 +1210,7 @@ function kube-default() {{
         self.configure_kubespray()
         
         print("\n" + "=" * 50)
-        print("📚 Kubespray setup completed!")
+        print("Kubespray setup completed!")
         print("=" * 50)
         print("\nNext steps:")
         print("1. Run with --kubernetes-only to deploy Kubernetes")
