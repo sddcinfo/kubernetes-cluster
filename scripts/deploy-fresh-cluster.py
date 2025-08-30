@@ -15,7 +15,8 @@ from pathlib import Path
 class ClusterDeployer:
     def __init__(self, verify_only=False, infrastructure_only=False, kubespray_only=False, 
                  kubernetes_only=False, configure_mgmt_only=False, refresh_kubeconfig=False,
-                 skip_cleanup=False, skip_terraform_reset=False, force_recreate=False):
+                 skip_cleanup=False, skip_terraform_reset=False, force_recreate=False,
+                 haproxy_only=False):
         self.project_dir = Path(__file__).parent.parent
         self.terraform_dir = self.project_dir / "terraform"
         self.kubespray_version = "v2.28.1"
@@ -37,6 +38,7 @@ class ClusterDeployer:
         self.skip_cleanup = skip_cleanup
         self.skip_terraform_reset = skip_terraform_reset
         self.force_recreate = force_recreate
+        self.haproxy_only = haproxy_only
         
     def run_command(self, command, description, cwd=None, check=True, timeout=None, log_file=None):
         """Run a command with proper error handling and optional logging"""
@@ -872,6 +874,34 @@ function kube-default() {{
         print("Cluster verification completed!")
         return True
         
+    def setup_haproxy(self):
+        """Setup HAProxy load balancer"""
+        print("\nPhase 6.75: HAProxy Load Balancer Setup")
+        print("=" * 50)
+        
+        # Import and run HAProxy setup
+        haproxy_script = self.project_dir / "scripts" / "setup-haproxy.py"
+        
+        if not haproxy_script.exists():
+            print(f"HAProxy setup script not found at {haproxy_script}")
+            print("HAProxy must be configured manually")
+            return False
+            
+        result = self.run_command(
+            ["python3", str(haproxy_script)],
+            "Setting up HAProxy load balancer",
+            check=False,
+            timeout=300  # 5 minutes timeout
+        )
+        
+        if result.returncode == 0:
+            print("HAProxy setup completed successfully")
+            return True
+        else:
+            print("HAProxy setup failed")
+            print("Check HAProxy VM is accessible and properly configured")
+            return False
+        
     def get_vm_placement_from_terraform(self):
         """Get VM placement mapping from Terraform configuration or state"""
         vm_placement = {}
@@ -1088,6 +1118,8 @@ function kube-default() {{
             self.run_kubernetes_only()
         elif self.configure_mgmt_only:
             self.run_configure_mgmt_only()
+        elif self.haproxy_only:
+            self.run_haproxy_only()
         else:
             self.run_full_deployment()
             
@@ -1137,6 +1169,30 @@ function kube-default() {{
         else:
             print("\nManagement configuration completed with warnings.")
             print("kubectl may work once HAProxy is fully configured.")
+        
+    def run_haproxy_only(self):
+        """Setup HAProxy load balancer only"""
+        print("HAProxy Load Balancer Setup Only")
+        print("=" * 50)
+        
+        # Setup HAProxy
+        success = self.setup_haproxy()
+        
+        if success:
+            print("\n" + "=" * 50)
+            print("HAProxy load balancer setup completed!")
+            print("=" * 50)
+            print("\nHAProxy VIP: 10.10.1.30")
+            print("Kubernetes API: https://10.10.1.30:6443")
+            print("HAProxy Stats: http://10.10.1.30:8080/stats")
+            print("\nTo test the load balancer:")
+            print("  curl -k https://10.10.1.30:6443/version")
+            print("  kubectl --insecure-skip-tls-verify get nodes")
+        else:
+            print("\nHAProxy setup failed. Please check:")
+            print("1. HAProxy VM (10.10.1.30) is running and accessible")
+            print("2. SSH connectivity with automation key")
+            print("3. VM has internet access for package installation")
         
     def run_kubespray_only(self):
         """Setup and configure Kubespray only"""
@@ -1192,6 +1248,9 @@ function kube-default() {{
         # Phase 6.5: Configure management machine
         self.configure_management_kubeconfig(refresh_config=self.force_recreate)
         
+        # Phase 6.75: Setup HAProxy load balancer
+        self.setup_haproxy()
+        
         # Phase 7: Verify
         self.verify_cluster()
         
@@ -1241,6 +1300,9 @@ function kube-default() {{
         # Phase 6.5: Configure management machine
         self.configure_management_kubeconfig(refresh_config=self.force_recreate)
         
+        # Phase 6.75: Setup HAProxy load balancer
+        self.setup_haproxy()
+        
         # Phase 7: Verify
         self.verify_cluster()
         
@@ -1270,6 +1332,8 @@ def main():
                        help="Deploy Kubernetes cluster only (assumes infrastructure exists)")
     parser.add_argument("--configure-mgmt-only", action="store_true", 
                        help="Configure management machine kubectl to use VIP only")
+    parser.add_argument("--haproxy-only", action="store_true",
+                       help="Setup HAProxy load balancer only")
     parser.add_argument("--refresh-kubeconfig", action="store_true",
                        help="Refresh kubeconfig from cluster when configuring management")
     
@@ -1284,7 +1348,7 @@ def main():
     args = parser.parse_args()
     
     # Validate argument combinations
-    component_flags = [args.infrastructure_only, args.kubespray_only, args.kubernetes_only, args.configure_mgmt_only]
+    component_flags = [args.infrastructure_only, args.kubespray_only, args.kubernetes_only, args.configure_mgmt_only, args.haproxy_only]
     if sum(component_flags) > 1:
         print("Cannot specify multiple component flags simultaneously")
         sys.exit(1)
@@ -1303,7 +1367,8 @@ def main():
         refresh_kubeconfig=args.refresh_kubeconfig,
         skip_cleanup=args.skip_cleanup,
         skip_terraform_reset=args.skip_terraform_reset,
-        force_recreate=args.force_recreate
+        force_recreate=args.force_recreate,
+        haproxy_only=args.haproxy_only
     )
     deployer.run()
     
