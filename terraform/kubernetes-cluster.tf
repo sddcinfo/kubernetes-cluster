@@ -89,7 +89,7 @@ resource "proxmox_virtual_environment_vm" "haproxy_lb" {
 
   clone {
     vm_id     = 9000  # ubuntu-base-template
-    node_name = "node1"
+    node_name = each.value  # Clone on target node for distributed storage
     full      = true
   }
 
@@ -152,7 +152,7 @@ resource "proxmox_virtual_environment_vm" "control_plane" {
 
   clone {
     vm_id     = 9000  # ubuntu-base-template
-    node_name = "node1"
+    node_name = each.value  # Clone on target node for distributed storage
     full      = true
   }
 
@@ -215,7 +215,7 @@ resource "proxmox_virtual_environment_vm" "workers" {
 
   clone {
     vm_id     = 9000  # ubuntu-base-template
-    node_name = "node1"
+    node_name = each.value  # Clone on target node for distributed storage
     full      = true
   }
 

@@ -293,13 +293,21 @@ class ClusterDeployer:
         print("\nPhase 1: Infrastructure Deployment")
         print("=" * 50)
         
+        # Initialize Terraform if needed
+        if not (self.terraform_dir / ".terraform").exists():
+            self.run_command(
+                ["terraform", "init"],
+                "Initializing Terraform",
+                cwd=self.terraform_dir
+            )
+        
         for attempt in range(1, self.max_retries + 1):
             print(f"\nDeployment attempt {attempt}/{self.max_retries}")
             
-            # Run Terraform apply with serial execution (parallelism=1)
+            # Run Terraform apply with optimized parallelism (4 nodes = 4 parallel operations)
             result = self.run_command(
-                ["terraform", "apply", "-auto-approve", "-parallelism=1"],
-                "Running Terraform apply (serial mode)",
+                ["terraform", "apply", "-auto-approve", "-parallelism=4"],
+                "Running Terraform apply (parallel mode, 4 nodes)",
                 cwd=self.terraform_dir,
                 check=False
             )
