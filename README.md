@@ -1,9 +1,9 @@
 # Kubernetes Cluster Automation
 
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Kubernetes](https://img.shields.io/badge/Kubernetes-1.32.8-326CE5?logo=kubernetes&logoColor=white)](https://kubernetes.io/)
-[![Kubespray](https://img.shields.io/badge/Kubespray-2.28.1-FF6B35)](https://kubespray.io/)
-[![Proxmox](https://img.shields.io/badge/Proxmox_VE-8.0+-E57000?logo=proxmox&logoColor=white)](https://www.proxmox.com/)
+[![Kubernetes](https://img.shields.io/badge/Kubernetes-1.33+-326CE5?logo=kubernetes&logoColor=white)](https://kubernetes.io/)
+[![Kubespray](https://img.shields.io/badge/Kubespray-Latest-FF6B35)](https://kubespray.io/)
+[![Proxmox](https://img.shields.io/badge/Proxmox_VE-9.0+-E57000?logo=proxmox&logoColor=white)](https://www.proxmox.com/)
 
 Production-grade automation framework for deploying highly available Kubernetes clusters on Proxmox VE infrastructure using industry-standard tooling and best practices.
 
@@ -25,7 +25,7 @@ Production-grade automation framework for deploying highly available Kubernetes 
 
 This solution provides comprehensive automation for deploying and managing production-ready Kubernetes clusters on Proxmox VE environments. Built using a proven technology stack of OpenTofu, Kubespray, and Python, it eliminates manual configuration steps while ensuring consistent, reliable deployments.
 
-**Important**: This solution requires VM templates (IDs 9000 and 9001) to be created first using the [ansible-provisioning-server](https://github.com/sddcinfo/ansible-provisioning-server) repository.
+**Important**: This solution requires a VM template (ID 9000) to be created first using the [ansible-provisioning-server](https://github.com/sddcinfo/ansible-provisioning-server) repository.
 
 ### Key Features
 
@@ -40,9 +40,9 @@ This solution provides comprehensive automation for deploying and managing produ
 
 | Component | Technology | Version | Purpose |
 |-----------|------------|---------|---------|
-| **Infrastructure** | OpenTofu | 1.7+ | Declarative infrastructure provisioning |
-| **Kubernetes** | Kubespray | 2.28.1 | Production-ready cluster deployment |
-| **Container Network** | Cilium | 1.17+ | eBPF-based CNI with advanced networking and security |
+| **Infrastructure** | OpenTofu | Latest | Declarative infrastructure provisioning |
+| **Kubernetes** | Kubespray | Latest | Production-ready cluster deployment |
+| **Container Network** | Cilium | Latest | eBPF-based CNI with advanced networking and security |
 | **Storage** | Proxmox CSI | Latest | Dynamic persistent volume provisioning |
 | **Load Balancing** | MetalLB | Latest | Bare-metal LoadBalancer implementation |
 | **Orchestration** | Python | 3.11+ | Deployment coordination and automation |
@@ -87,7 +87,7 @@ DHCP Range                 (10.10.1.100-200)
 
 ### Infrastructure Requirements
 
-- **Proxmox VE**: Version 8.0+ cluster with minimum 4 nodes
+- **Proxmox VE**: Version 9.0+ cluster with minimum 4 nodes
 - **Hardware**: 8+ CPU cores, 32GB+ RAM, 500GB+ storage per node
 - **Storage**: Ceph RBD or distributed storage backend
 - **Network**: Bridge interface (vmbr0) for cluster communication
@@ -115,8 +115,7 @@ python3 scripts/template-manager.py --create-templates
 ```
 
 This creates:
-- **Template 9000**: Ubuntu 24.04 base template
-- **Template 9001**: Ubuntu 24.04 with Kubernetes runtime
+- **Template 9000**: Ubuntu 24.04 base template with cloud-init and qemu-guest-agent
 
 ## Quick Start
 
@@ -304,41 +303,7 @@ python3 scripts/deploy-fresh-cluster.py --kubernetes-only --fast
 
 ## Operations
 
-## Current Deployment Status
-
-**Cluster Milestone: Production-Ready Kubernetes Cluster Deployed** (August 30, 2025)
-
-### Deployed Infrastructure
-- **Kubernetes Version**: v1.32.8 (latest stable)
-- **Kubespray Version**: v2.28.1 
-- **Container Network**: Cilium v1.17.7 with eBPF dataplane
-- **Container Runtime**: containerd v2.0.6
-- **Operating System**: Ubuntu 24.04.3 LTS (6.8.0-71-generic kernel)
-
-### Cluster Topology
-- **Control Plane Nodes**: 3 nodes (k8s-control-1 through k8s-control-3)
-- **Worker Nodes**: 4 nodes (k8s-worker-1 through k8s-worker-4)
-- **Load Balancer**: HAProxy on k8s-vip.sddc.info (10.10.1.30)
-- **Total Nodes**: 7 nodes, all in Ready status
-
-### High Availability Configuration
-- **API Server Load Balancing**: HAProxy distributing traffic across 3 control plane nodes
-- **etcd Cluster**: 3-node etcd cluster with stacked topology
-- **Control Plane**: Multi-master setup with leader election
-- **Network**: Cilium CNI with Hubble observability enabled
-
-### Verified Functionality
-- All nodes operational and in Ready state
-- Localhost load balancers functional on worker nodes (port 127.0.0.1:6443)
-- Cilium networking operational across all nodes
-- CoreDNS cluster DNS resolution working
-- Pod scheduling and inter-pod networking verified
-- Kubernetes API accessible through direct connection
-- All system components running (kube-system namespace)
-
-### Access Methods
-- **Direct API Access**: First control plane node (10.10.1.31:6443)
-- **Localhost Load Balancer**: nginx proxies on worker nodes (127.0.0.1:6443)
+## Cluster Status and Access
 
 ### Cluster Access
 
