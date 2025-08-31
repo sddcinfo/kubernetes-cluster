@@ -24,13 +24,9 @@ class ClusterDeployer:
         self.venv_dir = self.project_dir / "kubespray" / "venv"
         self.config_dir = self.project_dir / "kubespray-config"
         self.max_retries = 3
-        # Adjust VM count based on HA mode
-        if ha_mode == "external":
-            self.vm_count = 8  # 3 control + 4 workers + 1 haproxy
-            self.vm_ids = [130, 131, 132, 133, 140, 141, 142, 143]  # VMs to clean up
-        else:
-            self.vm_count = 7  # 3 control + 4 workers (no haproxy)
-            self.vm_ids = [131, 132, 133, 140, 141, 142, 143]  # VMs to clean up (no 130)
+        # VM configuration - Terraform always creates all VMs regardless of HA mode
+        self.vm_count = 8  # 3 control + 4 workers + 1 haproxy
+        self.vm_ids = [130, 131, 132, 133, 140, 141, 142, 143]  # All VMs to clean up
         self.proxmox_nodes = ["node1", "node2", "node3", "node4"]
         
         # Mode flags
@@ -133,7 +129,7 @@ class ClusterDeployer:
             # Get list of all VMs on this node that match our target VM IDs
             vm_ids_pattern = '|'.join(map(str, self.vm_ids))
             result = self.run_command(
-                f"ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 root@{node} 'qm list | grep -E \"({vm_ids_pattern})\" | awk \"{{print $1}}\" || true'",
+                f"ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 root@{node} \"qm list | grep -E '({vm_ids_pattern})' | awk '{{print \\$1}}' || true\"",
                 f"Listing target VMs on {node}",
                 check=False,
                 timeout=10
@@ -429,7 +425,71 @@ class ClusterDeployer:
             "Installing Kubespray requirements"
         )
         
+        # Fix ansible.cfg roles_path for v2.28.1 compatibility
+        self.fix_kubespray_ansible_config()
+        
         print("Kubespray setup completed")
+    
+    def fix_kubespray_ansible_config(self):
+        """Fix ansible.cfg to include proper roles_path for Kubespray v2.28.1"""
+        print("Fixing ansible.cfg roles_path for v2.28.1 compatibility...")
+        
+        ansible_cfg_path = self.kubespray_dir / "ansible.cfg"
+        
+        # Read current ansible.cfg content
+        if ansible_cfg_path.exists():
+            with open(ansible_cfg_path, 'r') as f:
+                content = f.read()
+        else:
+            content = ""
+        
+        # Check if roles_path is already configured correctly
+        if "roles_path = roles:playbooks/roles" in content:
+            print("   ansible.cfg already has correct roles_path configuration")
+            return
+            
+        # Find and update existing roles_path or add new one
+        lines = content.split('\n')
+        new_lines = []
+        updated_roles_path = False
+        
+        for line in lines:
+            # If we find an existing roles_path line, replace it with our fix
+            if line.strip().startswith('roles_path = '):
+                if not updated_roles_path:
+                    new_lines.append('# Role paths - ensure roles are found from main kubespray directory')
+                    new_lines.append('roles_path = roles:playbooks/roles')
+                    updated_roles_path = True
+                # Skip any additional roles_path lines to avoid duplicates
+                continue
+            else:
+                new_lines.append(line)
+        
+        # If no existing roles_path was found, add it after [defaults] section
+        if not updated_roles_path:
+            for i, line in enumerate(new_lines):
+                if line.strip() == '[defaults]':
+                    new_lines.insert(i + 1, '')
+                    new_lines.insert(i + 2, '# Role paths - ensure roles are found from main kubespray directory')
+                    new_lines.insert(i + 3, 'roles_path = roles:playbooks/roles')
+                    updated_roles_path = True
+                    break
+        
+        # If [defaults] section doesn't exist, add it at the beginning
+        if not updated_roles_path:
+            header = [
+                '[defaults]',
+                '# Role paths - ensure roles are found from main kubespray directory', 
+                'roles_path = roles:playbooks/roles',
+                ''
+            ]
+            new_lines = header + new_lines
+        
+        # Write updated content back to ansible.cfg
+        with open(ansible_cfg_path, 'w') as f:
+            f.write('\n'.join(new_lines))
+            
+        print(f"   Updated ansible.cfg with correct roles_path: {ansible_cfg_path}")
         
     def apply_download_optimization(self):
         """Apply download optimization configuration to Kubespray"""
@@ -557,7 +617,7 @@ cilium_enable_prometheus: true
 kube_owner: root
 
 # Additional optimizations
-kube_read_only_port: false
+kube_read_only_port: 0
 kubelet_rotate_certificates: true
 kubelet_rotate_server_certificates: true
 
@@ -634,7 +694,7 @@ loadbalancer_apiserver_port: 6443
         """Create ansible.cfg optimization for faster re-runs"""
         print("Creating Ansible performance optimizations...")
         
-        # Create optimized ansible.cfg in kubespray directory
+        # Create optimized ansible.cfg in kubespray directory with roles_path fix
         ansible_cfg_content = """[defaults]
 # Performance optimizations for faster playbook execution
 host_key_checking = False
@@ -645,6 +705,9 @@ fact_caching = memory
 fact_caching_timeout = 3600
 callback_whitelist = timer, profile_tasks, profile_roles
 
+# Role paths - ensure roles are found from main kubespray directory
+roles_path = roles:playbooks/roles
+
 # SSH connection optimization
 [ssh_connection]
 ssh_args = -o ControlMaster=auto -o ControlPersist=600s -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no
@@ -654,7 +717,7 @@ control_path = /tmp/ansible-%%h-%%p-%%r
         
         ansible_cfg_path = self.kubespray_dir / "ansible.cfg"
         ansible_cfg_path.write_text(ansible_cfg_content)
-        print(f"   Created optimized ansible.cfg: {ansible_cfg_path}")
+        print(f"   Created optimized ansible.cfg with roles_path fix: {ansible_cfg_path}")
         
         # Create fast-mode specific optimizations
         if self.fast_mode:
@@ -791,33 +854,56 @@ skip_verify_kube_groups: true
         print(f"Full deployment log: {log_file}")
         
     def setup_kubeconfig(self):
-        """Setup kubeconfig for cluster access"""
+        """Setup kubeconfig for cluster access with automatic HA mode detection and configuration"""
         print("\nPhase 6: Kubeconfig Setup")
         print("=" * 50)
         
-        ansible_path = self.venv_dir / "bin" / "ansible"
-        inventory_file = self.kubespray_dir / "inventory" / "proxmox-cluster" / "inventory.ini"
-        
-        # Fetch kubeconfig
-        self.run_command(
-            [str(ansible_path), "-i", str(inventory_file),
-             "kube_control_plane[0]", "-m", "fetch",
-             "-a", "src=/etc/kubernetes/admin.conf dest=/tmp/kubeconfig flat=yes"],
-            "Fetching kubeconfig from control plane",
-            cwd=self.kubespray_dir
-        )
-        
-        # Install kubeconfig
+        # Create .kube directory if it doesn't exist
         kube_dir = Path.home() / ".kube"
         kube_dir.mkdir(exist_ok=True)
         
         kubeconfig_path = kube_dir / "config-k8s-proxmox"
-        shutil.copy("/tmp/kubeconfig", kubeconfig_path)
+        
+        # Use the robust fetch method with fallback logic
+        success = self._fetch_fresh_kubeconfig(kubeconfig_path)
+        
+        if not success:
+            print("Error: Could not fetch kubeconfig from any control plane node")
+            print("This might indicate cluster deployment issues or connectivity problems")
+            return False
+        
+        # Verify kubeconfig was created
+        if not kubeconfig_path.exists():
+            print("Error: Kubeconfig file was not created successfully")
+            return False
+        
+        # Set proper permissions
         kubeconfig_path.chmod(0o600)
         
-        print(f"Kubeconfig installed at {kubeconfig_path}")
-        print("Set environment variable:")
-        print(f"   export KUBECONFIG={kubeconfig_path}")
+        print(f"Raw kubeconfig fetched successfully: {kubeconfig_path}")
+        
+        # Now configure the appropriate access method based on HA mode
+        print(f"\nConfiguring kubeconfig for HA mode: {self.ha_mode}")
+        
+        if self.ha_mode == "localhost":
+            print("Configuring direct control plane access for localhost HA mode...")
+            success = self._configure_direct_access_kubeconfig(refresh_config=False)
+        elif self.ha_mode in ["kube-vip", "external"]:
+            print(f"Configuring VIP access for {self.ha_mode} HA mode...")
+            vip_address = "10.10.1.30"  # Default VIP address
+            success = self._configure_vip_kubeconfig(refresh_config=False, vip_address=vip_address)
+        else:
+            print(f"Warning: Unknown HA mode '{self.ha_mode}', defaulting to direct access...")
+            success = self._configure_direct_access_kubeconfig(refresh_config=False)
+        
+        if not success:
+            print("Warning: Failed to configure optimal kubeconfig access method")
+            print(f"Raw kubeconfig is still available at: {kubeconfig_path}")
+            print("You may need to manually configure the server endpoint")
+            return False
+        
+        print(f"\nPhase 6 completed: Kubeconfig configured for {self.ha_mode} HA mode")
+        return True
         
     def _fetch_kubeconfig_via_ssh(self, temp_kubeconfig):
         """Helper method to fetch kubeconfig via direct SSH"""
@@ -825,7 +911,7 @@ skip_verify_kube_groups: true
         for control_ip in ["10.10.1.31", "10.10.1.32", "10.10.1.33"]:
             print(f"Attempting SSH fetch from {control_ip}...")
             result = self.run_command(
-                f"scp -o StrictHostKeyChecking=no -o ConnectTimeout=5 -i /home/sysadmin/.ssh/sysadmin_automation_key sysadmin@{control_ip}:/etc/kubernetes/admin.conf /tmp/kubeconfig-fresh",
+                f"ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -i /home/sysadmin/.ssh/sysadmin_automation_key sysadmin@{control_ip} 'sudo cat /etc/kubernetes/admin.conf' > /tmp/kubeconfig-fresh",
                 f"Fetching kubeconfig via SSH from {control_ip}",
                 check=False
             )
@@ -857,9 +943,16 @@ skip_verify_kube_groups: true
         # Read current kubeconfig
         kubeconfig_content = temp_kubeconfig.read_text()
         
-        # For localhost HA, keep the direct control plane IP (10.10.1.31)
-        # This works because localhost load balancers are on worker nodes
-        # The management machine connects directly to control plane
+        # For localhost HA mode, convert localhost/VIP endpoints to direct control plane access
+        # Replace common endpoint patterns with the primary control plane IP
+        primary_control_ip = "10.10.1.31"
+        
+        # Replace various possible server endpoints with direct control plane IP
+        kubeconfig_content = kubeconfig_content.replace("https://127.0.0.1:6443", f"https://{primary_control_ip}:6443")
+        kubeconfig_content = kubeconfig_content.replace("https://localhost:6443", f"https://{primary_control_ip}:6443")
+        kubeconfig_content = kubeconfig_content.replace("https://10.10.1.30:6443", f"https://{primary_control_ip}:6443")  # VIP to direct
+        
+        print(f"Configured kubeconfig for direct access to control plane: {primary_control_ip}")
         
         # Write configs
         default_kubeconfig.write_text(kubeconfig_content)
@@ -1389,7 +1482,7 @@ function kube-default() {{
             
         elif self.phase_only == "kubespray-setup":
             print("Running Phase 2: Kubespray Setup")
-            self.setup_kubespray_environment()
+            self.setup_kubespray()
             
         elif self.phase_only == "kubespray-config":
             print("Running Phase 3: Kubespray Configuration")
