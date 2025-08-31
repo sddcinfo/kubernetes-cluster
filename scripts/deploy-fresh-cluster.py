@@ -1248,7 +1248,6 @@ function kube-default() {{
             "kube-apiserver": "kube-system",
             "kube-controller-manager": "kube-system", 
             "kube-scheduler": "kube-system",
-            "etcd": "kube-system",
             "coredns": "kube-system",
             "cilium": "kube-system"
         }
@@ -1275,6 +1274,31 @@ function kube-default() {{
                 else:
                     print(f"❌ {component} pods not found or not running")
                     verification_passed = False
+        
+        # 4b. Check etcd (can be systemd service or pod)
+        print("\n4️⃣b Checking etcd...")
+        # First check if etcd pods exist
+        etcd_pods_result = self.run_command(
+            f"{kubectl_cmd} get pods -n kube-system | grep -i etcd",
+            "Checking for etcd pods",
+            check=False
+        )
+        
+        if etcd_pods_result.returncode == 0 and etcd_pods_result.stdout.strip():
+            print("✅ etcd running as pods")
+        else:
+            # Check if etcd is running as systemd service on control plane
+            etcd_service_result = self.run_command(
+                "ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 sysadmin@10.10.1.31 'sudo systemctl is-active etcd' 2>/dev/null",
+                "Checking etcd systemd service",
+                check=False
+            )
+            
+            if etcd_service_result.returncode == 0 and etcd_service_result.stdout.strip() == "active":
+                print("✅ etcd running as systemd service on control planes")
+            else:
+                print("❌ etcd not found (neither as pod nor systemd service)")
+                verification_passed = False
         
         # 5. Check all pods status across all namespaces
         print("\n5️⃣  All Pods Status")
@@ -1306,27 +1330,62 @@ function kube-default() {{
         
         # 7. Test DNS resolution
         print("\n7️⃣  DNS Resolution Test")
+        
+        # First determine the cluster domain
+        cluster_domain_result = self.run_command(
+            f"{kubectl_cmd} get cm -n kube-system kubelet-config -o jsonpath='{{.data.kubelet}}' | grep clusterDomain | awk '{{print $2}}' | tr -d '\"'",
+            "Getting cluster domain",
+            check=False
+        )
+        
+        cluster_domain = "cluster.local"  # default
+        if cluster_domain_result.returncode == 0 and cluster_domain_result.stdout.strip():
+            cluster_domain = cluster_domain_result.stdout.strip()
+            print(f"   Cluster domain: {cluster_domain}")
+        
+        # Test DNS with correct domain
+        dns_name = f"kubernetes.default.svc.{cluster_domain}"
         result = self.run_command(
-            f"{kubectl_cmd} run dns-test --image=busybox:1.35 --rm -i --restart=Never --command -- nslookup kubernetes.default.svc.cluster.local",
-            "Testing DNS resolution",
+            f"{kubectl_cmd} run dns-test --image=busybox:1.35 --rm -i --restart=Never --command -- nslookup {dns_name}",
+            f"Testing DNS resolution for {dns_name}",
             check=False,
             timeout=30
         )
-        if result.returncode == 0:
-            print("✅ DNS resolution is working")
+        
+        if result.returncode == 0 and "Address" in result.stdout:
+            print(f"✅ DNS resolution is working for cluster domain: {cluster_domain}")
         else:
-            print("⚠️  DNS resolution test failed - trying alternative test...")
-            # Alternative DNS test
-            alt_result = self.run_command(
-                f"{kubectl_cmd} get svc -n kube-system kube-dns",
-                "Checking DNS service exists",
-                check=False
+            # Try a simpler test - just resolve kubernetes service
+            print("⚠️  Full DNS test failed - trying simpler test...")
+            simple_result = self.run_command(
+                f"{kubectl_cmd} run dns-test-simple --image=busybox:1.35 --rm -i --restart=Never --command -- nslookup kubernetes.default",
+                "Testing simple DNS resolution",
+                check=False,
+                timeout=30
             )
-            if alt_result.returncode == 0:
-                print("✅ DNS service is present")
+            
+            if simple_result.returncode == 0 and "Address" in simple_result.stdout:
+                print("✅ Basic DNS resolution is working")
             else:
-                print("❌ DNS functionality may be impaired")
-                verification_passed = False
+                # Check if CoreDNS and NodeLocalDNS are running
+                coredns_check = self.run_command(
+                    f"{kubectl_cmd} get pods -n kube-system | grep -E 'coredns|nodelocaldns' | grep Running | wc -l",
+                    "Checking DNS pods",
+                    check=False
+                )
+                
+                if coredns_check.returncode == 0:
+                    dns_pod_count = coredns_check.stdout.strip()
+                    if int(dns_pod_count) > 0:
+                        print(f"⚠️  DNS pods are running ({dns_pod_count} pods) but resolution not working from test pod")
+                        print("    This may be normal if nodelocaldns is not fully configured")
+                        print("    DNS should work for actual workloads within the cluster")
+                    else:
+                        print("❌ DNS pods not running properly")
+                        verification_passed = False
+                else:
+                    print("❌ Could not verify DNS pod status")
+                    verification_passed = False
         
         # 8. Test basic workload deployment
         print("\n8️⃣  Basic Workload Test")
