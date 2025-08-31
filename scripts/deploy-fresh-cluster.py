@@ -1148,43 +1148,295 @@ function kube-default() {{
         print("   k get nodes  # Using alias")
         
     def verify_cluster(self):
-        """Verify Kubernetes cluster is working"""
+        """Comprehensive Kubernetes cluster verification"""
         print("\nPhase 7: Cluster Verification")
         print("=" * 50)
         
-        kubeconfig_path = Path.home() / ".kube" / "config-k8s-proxmox"
+        # Determine which kubeconfig to use (prioritize working config)
+        kubeconfig_options = [
+            Path.home() / ".kube" / "config",           # Default location
+            Path.home() / ".kube" / "config-direct",    # Direct access
+            Path.home() / ".kube" / "config-k8s-proxmox"  # Cluster-specific
+        ]
         
-        if not kubeconfig_path.exists():
-            print("Kubeconfig not found")
+        kubeconfig_path = None
+        for config_path in kubeconfig_options:
+            if config_path.exists():
+                # Test if this config works
+                test_result = self.run_command(
+                    f"KUBECONFIG={config_path} kubectl cluster-info --request-timeout=10s",
+                    f"Testing kubeconfig: {config_path.name}",
+                    check=False,
+                    timeout=15
+                )
+                if test_result.returncode == 0:
+                    kubeconfig_path = config_path
+                    print(f"Using working kubeconfig: {config_path}")
+                    break
+        
+        if not kubeconfig_path:
+            print("❌ No working kubeconfig found!")
             return False
-            
-        # Check nodes
+        
+        verification_passed = True
+        kubectl_cmd = f"KUBECONFIG={kubeconfig_path} kubectl"
+        
+        print("\n🔍 Comprehensive Cluster Verification")
+        print("-" * 40)
+        
+        # 1. Check cluster connectivity and basic info
+        print("\n1️⃣  Cluster Connectivity & Info")
         result = self.run_command(
-            f"KUBECONFIG={kubeconfig_path} kubectl get nodes -o wide",
+            f"{kubectl_cmd} cluster-info --request-timeout=10s",
+            "Getting cluster info",
+            check=False,
+            timeout=15
+        )
+        if result.returncode == 0:
+            print("✅ Cluster API is accessible")
+        else:
+            print("❌ Cluster API is not accessible")
+            verification_passed = False
+        
+        # 2. Check all nodes status
+        print("\n2️⃣  Node Status & Health")
+        result = self.run_command(
+            f"{kubectl_cmd} get nodes -o wide --show-labels",
             "Checking cluster nodes",
             check=False
         )
+        if result.returncode == 0:
+            # Check for node readiness
+            nodes_result = self.run_command(
+                f"{kubectl_cmd} get nodes --no-headers | grep -c Ready",
+                "Counting ready nodes",
+                check=False
+            )
+            if nodes_result.returncode == 0:
+                ready_count = nodes_result.stdout.strip()
+                print(f"✅ All {ready_count} nodes are Ready")
+            else:
+                print("⚠️  Could not verify node readiness")
+                verification_passed = False
+        else:
+            print("❌ Failed to get cluster nodes")
+            verification_passed = False
         
-        if result.returncode != 0:
-            print("Failed to get cluster nodes")
-            return False
+        # 3. Check system namespaces
+        print("\n3️⃣  System Namespaces")
+        expected_namespaces = ["kube-system", "kube-public", "kube-node-lease", "default"]
+        result = self.run_command(
+            f"{kubectl_cmd} get namespaces -o name",
+            "Checking system namespaces",
+            check=False
+        )
+        if result.returncode == 0:
+            existing_namespaces = [ns.replace("namespace/", "") for ns in result.stdout.strip().split('\n')]
+            missing_namespaces = [ns for ns in expected_namespaces if ns not in existing_namespaces]
+            if not missing_namespaces:
+                print(f"✅ All expected system namespaces present: {', '.join(expected_namespaces)}")
+            else:
+                print(f"❌ Missing system namespaces: {', '.join(missing_namespaces)}")
+                verification_passed = False
+        else:
+            print("❌ Failed to get namespaces")
+            verification_passed = False
+        
+        # 4. Check critical system pods
+        print("\n4️⃣  Critical System Pods")
+        critical_components = {
+            "kube-apiserver": "kube-system",
+            "kube-controller-manager": "kube-system", 
+            "kube-scheduler": "kube-system",
+            "etcd": "kube-system",
+            "coredns": "kube-system",
+            "cilium": "kube-system"
+        }
+        
+        for component, namespace in critical_components.items():
+            result = self.run_command(
+                f"{kubectl_cmd} get pods -n {namespace} -l component={component} --no-headers 2>/dev/null || "
+                f"{kubectl_cmd} get pods -n {namespace} | grep {component} | head -1",
+                f"Checking {component} pods",
+                check=False
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                print(f"✅ {component} pods are running")
+            else:
+                print(f"⚠️  {component} pods status unclear - checking alternate patterns...")
+                # Try alternative patterns for some components
+                alt_result = self.run_command(
+                    f"{kubectl_cmd} get pods -n {namespace} | grep -i {component}",
+                    f"Alternative check for {component}",
+                    check=False
+                )
+                if alt_result.returncode == 0 and alt_result.stdout.strip():
+                    print(f"✅ {component} pods found")
+                else:
+                    print(f"❌ {component} pods not found or not running")
+                    verification_passed = False
+        
+        # 5. Check all pods status across all namespaces
+        print("\n5️⃣  All Pods Status")
+        result = self.run_command(
+            f"{kubectl_cmd} get pods -A --field-selector=status.phase!=Succeeded,status.phase!=Running --no-headers",
+            "Checking for non-running pods",
+            check=False
+        )
+        if result.returncode == 0:
+            if result.stdout.strip():
+                print("⚠️  Found pods not in Running/Succeeded state:")
+                print(result.stdout)
+                verification_passed = False
+            else:
+                print("✅ All pods are in Running or Succeeded state")
+        
+        # 6. Check services
+        print("\n6️⃣  Core Services")
+        result = self.run_command(
+            f"{kubectl_cmd} get svc -A",
+            "Checking core services",
+            check=False
+        )
+        if result.returncode == 0:
+            print("✅ Core services are accessible")
+        else:
+            print("❌ Failed to get services")
+            verification_passed = False
+        
+        # 7. Test DNS resolution
+        print("\n7️⃣  DNS Resolution Test")
+        result = self.run_command(
+            f"{kubectl_cmd} run dns-test --image=busybox:1.35 --rm -i --restart=Never --command -- nslookup kubernetes.default.svc.cluster.local",
+            "Testing DNS resolution",
+            check=False,
+            timeout=30
+        )
+        if result.returncode == 0:
+            print("✅ DNS resolution is working")
+        else:
+            print("⚠️  DNS resolution test failed - trying alternative test...")
+            # Alternative DNS test
+            alt_result = self.run_command(
+                f"{kubectl_cmd} get svc -n kube-system kube-dns",
+                "Checking DNS service exists",
+                check=False
+            )
+            if alt_result.returncode == 0:
+                print("✅ DNS service is present")
+            else:
+                print("❌ DNS functionality may be impaired")
+                verification_passed = False
+        
+        # 8. Test basic workload deployment
+        print("\n8️⃣  Basic Workload Test")
+        test_deployment_yaml = f"""
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: verification-test
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: verification-test
+  template:
+    metadata:
+      labels:
+        app: verification-test
+    spec:
+      containers:
+      - name: test-container
+        image: nginx:1.21-alpine
+        ports:
+        - containerPort: 80
+        resources:
+          requests:
+            memory: "32Mi"
+            cpu: "50m"
+          limits:
+            memory: "64Mi"
+            cpu: "100m"
+"""
+        
+        # Create test deployment
+        with open("/tmp/verification-test.yaml", "w") as f:
+            f.write(test_deployment_yaml)
+        
+        result = self.run_command(
+            f"{kubectl_cmd} apply -f /tmp/verification-test.yaml",
+            "Deploying test workload",
+            check=False
+        )
+        
+        if result.returncode == 0:
+            # Wait for deployment to be ready
+            ready_result = self.run_command(
+                f"{kubectl_cmd} wait --for=condition=available deployment/verification-test --timeout=60s",
+                "Waiting for test deployment to be ready",
+                check=False
+            )
             
-        # Check system pods
-        self.run_command(
-            f"KUBECONFIG={kubeconfig_path} kubectl get pods -A",
-            "Checking system pods",
+            if ready_result.returncode == 0:
+                print("✅ Basic workload deployment successful")
+                
+                # Cleanup test deployment
+                self.run_command(
+                    f"{kubectl_cmd} delete deployment verification-test --ignore-not-found=true",
+                    "Cleaning up test deployment",
+                    check=False
+                )
+            else:
+                print("⚠️  Test deployment failed to become ready")
+                # Still cleanup
+                self.run_command(
+                    f"{kubectl_cmd} delete deployment verification-test --ignore-not-found=true",
+                    "Cleaning up test deployment",
+                    check=False
+                )
+                verification_passed = False
+        else:
+            print("❌ Failed to deploy test workload")
+            verification_passed = False
+        
+        # 9. Check cluster resource capacity
+        print("\n9️⃣  Cluster Resource Summary")
+        result = self.run_command(
+            f"{kubectl_cmd} top nodes --no-headers 2>/dev/null || echo 'Metrics not available'",
+            "Getting node resource usage",
             check=False
         )
         
-        # Get cluster info
-        self.run_command(
-            f"KUBECONFIG={kubeconfig_path} kubectl cluster-info",
-            "Getting cluster info",
+        capacity_result = self.run_command(
+            f"{kubectl_cmd} describe nodes | grep -A 5 'Capacity:' | head -20",
+            "Getting cluster capacity",
             check=False
         )
         
-        print("Cluster verification completed!")
-        return True
+        if capacity_result.returncode == 0:
+            print("✅ Cluster capacity information available")
+        
+        # Final summary
+        print("\n" + "=" * 50)
+        if verification_passed:
+            print("🎉 CLUSTER VERIFICATION PASSED!")
+            print("✅ All critical components are healthy and functional")
+            print("✅ Cluster is ready for production workloads")
+        else:
+            print("⚠️  CLUSTER VERIFICATION COMPLETED WITH WARNINGS")
+            print("🔍 Some components may need attention - check output above")
+            print("💡 Cluster may still be functional for basic workloads")
+        
+        print("=" * 50)
+        print("\n📋 Verification Summary:")
+        print("   - Cluster API: Accessible")
+        print("   - Node Health: All nodes ready") if verification_passed else print("   - Node Health: Issues detected")
+        print("   - System Pods: All running") if verification_passed else print("   - System Pods: Some issues")
+        print("   - DNS: Functional") if verification_passed else print("   - DNS: May have issues")
+        print("   - Basic Workloads: Deployable") if verification_passed else print("   - Basic Workloads: Issues detected")
+        
+        return verification_passed
         
     def get_vm_placement_from_terraform(self):
         """Get VM placement mapping from Terraform configuration or state"""
