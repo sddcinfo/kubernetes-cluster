@@ -10,13 +10,14 @@ import time
 import shutil
 import argparse
 from pathlib import Path
+from datetime import datetime, timedelta
 
 
 class ClusterDeployer:
     def __init__(self, verify_only=False, infrastructure_only=False, kubespray_only=False, 
                  kubernetes_only=False, configure_mgmt_only=False, refresh_kubeconfig=False,
                  skip_cleanup=False, skip_terraform_reset=False, force_recreate=False,
-                 fast_mode=False, ha_mode="localhost", phase_only=None):
+                 fast_mode=False, ha_mode="localhost", phase_only=None, verbose=False):
         self.project_dir = Path(__file__).parent.parent
         self.terraform_dir = self.project_dir / "terraform"
         self.kubespray_version = "v2.28.1"
@@ -42,10 +43,19 @@ class ClusterDeployer:
         self.fast_mode = fast_mode
         self.ha_mode = ha_mode
         self.phase_only = phase_only
+        self.verbose = verbose
+        
+        # Timing tracking
+        self.start_time = None
+        self.phase_times = {}
+        self.current_phase_start = None
         
     def run_command(self, command, description, cwd=None, check=True, timeout=None, log_file=None):
         """Run a command with proper error handling and optional logging"""
-        print(f"-> {description}...")
+        if self.verbose:
+            print(f"-> {description}...")
+        else:
+            print(f"-> {description}", end="", flush=True)
         try:
             if log_file:
                 # For long-running commands with logging, use Popen for real-time output
@@ -75,9 +85,13 @@ class ClusterDeployer:
                             # Write to log file
                             log_f.write(output)
                             log_f.flush()
-                            # Show periodic progress indicators
-                            if any(keyword in output.lower() for keyword in ['task', 'play', 'gathering facts', 'setup', 'failed', 'ok:', 'changed:']):
-                                print(f"   {output.strip()}")
+                            # Show periodic progress indicators only in verbose mode
+                            if self.verbose and any(keyword in output.lower() for keyword in ['task', 'play', 'gathering facts', 'setup', 'failed', 'ok:', 'changed:']):
+                                print(f"\n   {output.strip()}", end="", flush=True)
+                            elif not self.verbose:
+                                # Show dots for progress in quiet mode
+                                if any(keyword in output.lower() for keyword in ['task', 'ok:', 'changed:']):
+                                    print(".", end="", flush=True)
                     
                     returncode = process.poll()
                     
@@ -94,6 +108,7 @@ class ClusterDeployer:
                     return result
             else:
                 # Standard execution for short commands
+                # Always capture output for result checking, but handle display differently
                 result = subprocess.run(
                     command,
                     cwd=cwd,
@@ -103,27 +118,88 @@ class ClusterDeployer:
                     timeout=timeout,
                     shell=isinstance(command, str)
                 )
-                if result.stdout and not result.stdout.isspace():
-                    print(f"   {result.stdout.strip()}")
+                
+                if self.verbose:
+                    # In verbose mode, show captured output
+                    if result.stdout and not result.stdout.isspace():
+                        print(f"   {result.stdout.strip()}")
+                    if result.stderr and not result.stderr.isspace():
+                        print(f"   stderr: {result.stderr.strip()}")
+                else:
+                    # In quiet mode, just show success indicator
+                    print(" [OK]")
+                
                 return result
         except subprocess.TimeoutExpired:
+            if not self.verbose:
+                print(" [TIMEOUT]")
             print(f"Command timed out after {timeout} seconds")
             return None
         except subprocess.CalledProcessError as e:
+            if not self.verbose:
+                print(" [FAILED]")
             if check:
                 print(f"Error: {e}")
-                if e.stderr:
+                if hasattr(e, 'stderr') and e.stderr:
                     print(f"   Stderr: {e.stderr}")
                 sys.exit(1)
             return e
             
+    def start_phase_timer(self, phase_name):
+        """Start timing a deployment phase"""
+        self.current_phase_start = datetime.now()
+        if not self.verbose:
+            print(f"\n=== Phase: {phase_name} ===")
+        
+    def end_phase_timer(self, phase_name):
+        """End timing a deployment phase and record the duration"""
+        if self.current_phase_start:
+            duration = datetime.now() - self.current_phase_start
+            self.phase_times[phase_name] = duration
+            if not self.verbose:
+                print(f" ({self.format_duration(duration)})")
+            self.current_phase_start = None
+    
+    def format_duration(self, duration):
+        """Format a duration into a human-readable string"""
+        total_seconds = int(duration.total_seconds())
+        hours, remainder = divmod(total_seconds, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        
+        if hours > 0:
+            return f"{hours}h {minutes}m {seconds}s"
+        elif minutes > 0:
+            return f"{minutes}m {seconds}s"
+        else:
+            return f"{seconds}s"
+    
+    def print_timing_summary(self):
+        """Print a summary of all phase timings"""
+        if not self.phase_times:
+            return
+            
+        print("\n" + "=" * 60)
+        print("DEPLOYMENT TIMING SUMMARY")
+        print("=" * 60)
+        
+        total_duration = timedelta()
+        for phase, duration in self.phase_times.items():
+            print(f"{phase:<40} {self.format_duration(duration):>15}")
+            total_duration += duration
+        
+        print("-" * 60)
+        print(f"{'TOTAL TIME':<40} {self.format_duration(total_duration):>15}")
+        print("=" * 60)
+    
     def discover_existing_vms(self):
         """Discover which VMs actually exist on the Proxmox cluster"""
-        print("Discovering existing VMs across all nodes...")
+        if self.verbose:
+            print("Discovering existing VMs across all nodes...")
         existing_vms = {}  # vm_id -> node_name mapping
         
         for node in self.proxmox_nodes:
-            print(f"Checking node {node}...")
+            if self.verbose:
+                print(f"Checking node {node}...")
             
             # Get list of all VMs on this node that match our target VM IDs
             vm_ids_pattern = '|'.join(map(str, self.vm_ids))
@@ -1175,17 +1251,17 @@ function kube-default() {{
                     break
         
         if not kubeconfig_path:
-            print("❌ No working kubeconfig found!")
+            print("ERROR: No working kubeconfig found!")
             return False
         
         verification_passed = True
         kubectl_cmd = f"KUBECONFIG={kubeconfig_path} kubectl"
         
-        print("\n🔍 Comprehensive Cluster Verification")
+        print("\nComprehensive Cluster Verification")
         print("-" * 40)
         
         # 1. Check cluster connectivity and basic info
-        print("\n1️⃣  Cluster Connectivity & Info")
+        print("\n1. Cluster Connectivity & Info")
         result = self.run_command(
             f"{kubectl_cmd} cluster-info --request-timeout=10s",
             "Getting cluster info",
@@ -1193,13 +1269,13 @@ function kube-default() {{
             timeout=15
         )
         if result.returncode == 0:
-            print("✅ Cluster API is accessible")
+            print("[OK] Cluster API is accessible")
         else:
-            print("❌ Cluster API is not accessible")
+            print("[FAILED] Cluster API is not accessible")
             verification_passed = False
         
         # 2. Check all nodes status
-        print("\n2️⃣  Node Status & Health")
+        print("\n2. Node Status & Health")
         result = self.run_command(
             f"{kubectl_cmd} get nodes -o wide --show-labels",
             "Checking cluster nodes",
@@ -1214,16 +1290,16 @@ function kube-default() {{
             )
             if nodes_result.returncode == 0:
                 ready_count = nodes_result.stdout.strip()
-                print(f"✅ All {ready_count} nodes are Ready")
+                print(f"[OK] All {ready_count} nodes are Ready")
             else:
-                print("⚠️  Could not verify node readiness")
+                print("[WARNING] Could not verify node readiness")
                 verification_passed = False
         else:
-            print("❌ Failed to get cluster nodes")
+            print("[FAILED] Failed to get cluster nodes")
             verification_passed = False
         
         # 3. Check system namespaces
-        print("\n3️⃣  System Namespaces")
+        print("\n3. System Namespaces")
         expected_namespaces = ["kube-system", "kube-public", "kube-node-lease", "default"]
         result = self.run_command(
             f"{kubectl_cmd} get namespaces -o name",
@@ -1234,16 +1310,16 @@ function kube-default() {{
             existing_namespaces = [ns.replace("namespace/", "") for ns in result.stdout.strip().split('\n')]
             missing_namespaces = [ns for ns in expected_namespaces if ns not in existing_namespaces]
             if not missing_namespaces:
-                print(f"✅ All expected system namespaces present: {', '.join(expected_namespaces)}")
+                print(f"[OK] All expected system namespaces present: {', '.join(expected_namespaces)}")
             else:
-                print(f"❌ Missing system namespaces: {', '.join(missing_namespaces)}")
+                print(f"[FAILED] Missing system namespaces: {', '.join(missing_namespaces)}")
                 verification_passed = False
         else:
-            print("❌ Failed to get namespaces")
+            print("[FAILED] Failed to get namespaces")
             verification_passed = False
         
         # 4. Check critical system pods
-        print("\n4️⃣  Critical System Pods")
+        print("\n4. Critical System Pods")
         critical_components = {
             "kube-apiserver": "kube-system",
             "kube-controller-manager": "kube-system", 
@@ -1260,9 +1336,9 @@ function kube-default() {{
                 check=False
             )
             if result.returncode == 0 and result.stdout.strip():
-                print(f"✅ {component} pods are running")
+                print(f"[OK] {component} pods are running")
             else:
-                print(f"⚠️  {component} pods status unclear - checking alternate patterns...")
+                print(f"[WARNING] {component} pods status unclear - checking alternate patterns...")
                 # Try alternative patterns for some components
                 alt_result = self.run_command(
                     f"{kubectl_cmd} get pods -n {namespace} | grep -i {component}",
@@ -1270,13 +1346,13 @@ function kube-default() {{
                     check=False
                 )
                 if alt_result.returncode == 0 and alt_result.stdout.strip():
-                    print(f"✅ {component} pods found")
+                    print(f"[OK] {component} pods found")
                 else:
-                    print(f"❌ {component} pods not found or not running")
+                    print(f"[FAILED] {component} pods not found or not running")
                     verification_passed = False
         
         # 4b. Check etcd (can be systemd service or pod)
-        print("\n4️⃣b Checking etcd...")
+        print("\n4b. Checking etcd...")
         # First check if etcd pods exist
         etcd_pods_result = self.run_command(
             f"{kubectl_cmd} get pods -n kube-system | grep -i etcd",
@@ -1285,7 +1361,7 @@ function kube-default() {{
         )
         
         if etcd_pods_result.returncode == 0 and etcd_pods_result.stdout.strip():
-            print("✅ etcd running as pods")
+            print("[OK] etcd running as pods")
         else:
             # Check if etcd is running as systemd service on control plane
             etcd_service_result = self.run_command(
@@ -1295,13 +1371,13 @@ function kube-default() {{
             )
             
             if etcd_service_result.returncode == 0 and etcd_service_result.stdout.strip() == "active":
-                print("✅ etcd running as systemd service on control planes")
+                print("[OK] etcd running as systemd service on control planes")
             else:
-                print("❌ etcd not found (neither as pod nor systemd service)")
+                print("[FAILED] etcd not found (neither as pod nor systemd service)")
                 verification_passed = False
         
         # 5. Check all pods status across all namespaces
-        print("\n5️⃣  All Pods Status")
+        print("\n5. All Pods Status")
         result = self.run_command(
             f"{kubectl_cmd} get pods -A --field-selector=status.phase!=Succeeded,status.phase!=Running --no-headers",
             "Checking for non-running pods",
@@ -1309,27 +1385,27 @@ function kube-default() {{
         )
         if result.returncode == 0:
             if result.stdout.strip():
-                print("⚠️  Found pods not in Running/Succeeded state:")
+                print("[WARNING] Found pods not in Running/Succeeded state:")
                 print(result.stdout)
                 verification_passed = False
             else:
-                print("✅ All pods are in Running or Succeeded state")
+                print("[OK] All pods are in Running or Succeeded state")
         
         # 6. Check services
-        print("\n6️⃣  Core Services")
+        print("\n6. Core Services")
         result = self.run_command(
             f"{kubectl_cmd} get svc -A",
             "Checking core services",
             check=False
         )
         if result.returncode == 0:
-            print("✅ Core services are accessible")
+            print("[OK] Core services are accessible")
         else:
-            print("❌ Failed to get services")
+            print("[FAILED] Failed to get services")
             verification_passed = False
         
         # 7. Test DNS resolution
-        print("\n7️⃣  DNS Resolution Test")
+        print("\n7. DNS Resolution Test")
         
         # First determine the cluster domain
         cluster_domain_result = self.run_command(
@@ -1353,10 +1429,10 @@ function kube-default() {{
         )
         
         if result.returncode == 0 and "Address" in result.stdout:
-            print(f"✅ DNS resolution is working for cluster domain: {cluster_domain}")
+            print(f"[OK] DNS resolution is working for cluster domain: {cluster_domain}")
         else:
             # Try a simpler test - just resolve kubernetes service
-            print("⚠️  Full DNS test failed - trying simpler test...")
+            print("[WARNING] Full DNS test failed - trying simpler test...")
             simple_result = self.run_command(
                 f"{kubectl_cmd} run dns-test-simple --image=busybox:1.35 --rm -i --restart=Never --command -- nslookup kubernetes.default",
                 "Testing simple DNS resolution",
@@ -1365,7 +1441,7 @@ function kube-default() {{
             )
             
             if simple_result.returncode == 0 and "Address" in simple_result.stdout:
-                print("✅ Basic DNS resolution is working")
+                print("[OK] Basic DNS resolution is working")
             else:
                 # Check if CoreDNS and NodeLocalDNS are running
                 coredns_check = self.run_command(
@@ -1377,18 +1453,18 @@ function kube-default() {{
                 if coredns_check.returncode == 0:
                     dns_pod_count = coredns_check.stdout.strip()
                     if int(dns_pod_count) > 0:
-                        print(f"⚠️  DNS pods are running ({dns_pod_count} pods) but resolution not working from test pod")
+                        print(f"[WARNING] DNS pods are running ({dns_pod_count} pods) but resolution not working from test pod")
                         print("    This may be normal if nodelocaldns is not fully configured")
                         print("    DNS should work for actual workloads within the cluster")
                     else:
-                        print("❌ DNS pods not running properly")
+                        print("[FAILED] DNS pods not running properly")
                         verification_passed = False
                 else:
-                    print("❌ Could not verify DNS pod status")
+                    print("[FAILED] Could not verify DNS pod status")
                     verification_passed = False
         
         # 8. Test basic workload deployment
-        print("\n8️⃣  Basic Workload Test")
+        print("\n8. Basic Workload Test")
         test_deployment_yaml = f"""
 apiVersion: apps/v1
 kind: Deployment
@@ -1438,7 +1514,7 @@ spec:
             )
             
             if ready_result.returncode == 0:
-                print("✅ Basic workload deployment successful")
+                print("[OK] Basic workload deployment successful")
                 
                 # Cleanup test deployment
                 self.run_command(
@@ -1447,7 +1523,7 @@ spec:
                     check=False
                 )
             else:
-                print("⚠️  Test deployment failed to become ready")
+                print("[WARNING] Test deployment failed to become ready")
                 # Still cleanup
                 self.run_command(
                     f"{kubectl_cmd} delete deployment verification-test --ignore-not-found=true",
@@ -1456,11 +1532,11 @@ spec:
                 )
                 verification_passed = False
         else:
-            print("❌ Failed to deploy test workload")
+            print("[FAILED] Failed to deploy test workload")
             verification_passed = False
         
         # 9. Check cluster resource capacity
-        print("\n9️⃣  Cluster Resource Summary")
+        print("\n9. Cluster Resource Summary")
         result = self.run_command(
             f"{kubectl_cmd} top nodes --no-headers 2>/dev/null || echo 'Metrics not available'",
             "Getting node resource usage",
@@ -1474,21 +1550,21 @@ spec:
         )
         
         if capacity_result.returncode == 0:
-            print("✅ Cluster capacity information available")
+            print("[OK] Cluster capacity information available")
         
         # Final summary
         print("\n" + "=" * 50)
         if verification_passed:
-            print("🎉 CLUSTER VERIFICATION PASSED!")
-            print("✅ All critical components are healthy and functional")
-            print("✅ Cluster is ready for production workloads")
+            print("CLUSTER VERIFICATION PASSED!")
+            print("[OK] All critical components are healthy and functional")
+            print("[OK] Cluster is ready for production workloads")
         else:
-            print("⚠️  CLUSTER VERIFICATION COMPLETED WITH WARNINGS")
-            print("🔍 Some components may need attention - check output above")
+            print("[WARNING] CLUSTER VERIFICATION COMPLETED WITH WARNINGS")
+            print("Some components may need attention - check output above")
             print("💡 Cluster may still be functional for basic workloads")
         
         print("=" * 50)
-        print("\n📋 Verification Summary:")
+        print("\nVerification Summary:")
         print("   - Cluster API: Accessible")
         print("   - Node Health: All nodes ready") if verification_passed else print("   - Node Health: Issues detected")
         print("   - System Pods: All running") if verification_passed else print("   - System Pods: Some issues")
@@ -1718,6 +1794,9 @@ spec:
     
     def run(self):
         """Run the deployment based on specified flags"""
+        # Record overall start time
+        self.start_time = datetime.now()
+        
         if self.verify_only:
             self.verify_existing_vms()
             return
@@ -1725,10 +1804,8 @@ spec:
         # Handle individual phase execution
         if self.phase_only:
             self.run_single_phase()
-            return
-            
         # Determine deployment mode
-        if self.infrastructure_only:
+        elif self.infrastructure_only:
             self.run_infrastructure_only()
         elif self.kubespray_only:
             self.run_kubespray_only()
@@ -1738,84 +1815,107 @@ spec:
             self.run_configure_mgmt_only()
         else:
             self.run_full_deployment()
+        
+        # Print timing summary at the end
+        self.print_timing_summary()
     
     def run_single_phase(self):
         """Run only a specific phase based on phase_only parameter"""
-        print(f"Single Phase Execution: {self.phase_only}")
-        print("=" * 50)
-        print(f"Project Directory: {self.project_dir}")
-        print(f"HA Mode: {self.ha_mode}")
-        print("=" * 50)
+        if self.verbose:
+            print(f"Single Phase Execution: {self.phase_only}")
+            print("=" * 50)
+            print(f"Project Directory: {self.project_dir}")
+            print(f"HA Mode: {self.ha_mode}")
+            print("=" * 50)
         
-        # Execute the specified phase
+        # Execute the specified phase with timing
         if self.phase_only == "cleanup":
-            print("Running Phase -1: VM Cleanup")
+            self.start_phase_timer("VM Cleanup")
             self.manual_vm_cleanup()
+            self.end_phase_timer("VM Cleanup")
             
         elif self.phase_only == "reset":
-            print("Running Phase 0: Terraform Reset")
+            self.start_phase_timer("Terraform Reset")
             self.reset_terraform()
+            self.end_phase_timer("Terraform Reset")
             
         elif self.phase_only == "infrastructure":
-            print("Running Phase 1: Infrastructure Deployment")
+            self.start_phase_timer("Infrastructure Deployment")
             self.deploy_infrastructure()
+            self.end_phase_timer("Infrastructure Deployment")
             
         elif self.phase_only == "kubespray-setup":
-            print("Running Phase 2: Kubespray Setup")
+            self.start_phase_timer("Kubespray Setup")
             self.setup_kubespray()
+            self.end_phase_timer("Kubespray Setup")
             
         elif self.phase_only == "kubespray-config":
-            print("Running Phase 3: Kubespray Configuration")
+            self.start_phase_timer("Kubespray Configuration")
             self.configure_kubespray()
+            self.end_phase_timer("Kubespray Configuration")
             
         elif self.phase_only == "connectivity":
-            print("Running Phase 4: Connectivity Test")
+            self.start_phase_timer("Connectivity Test")
             self.test_connectivity()
+            self.end_phase_timer("Connectivity Test")
             
         elif self.phase_only == "kubernetes":
-            print("Running Phase 5: Kubernetes Deployment")
+            self.start_phase_timer("Kubernetes Deployment")
             self.deploy_kubernetes()
+            self.end_phase_timer("Kubernetes Deployment")
             
         elif self.phase_only == "kubeconfig":
-            print("Running Phase 6: Kubeconfig Setup")
+            self.start_phase_timer("Kubeconfig Setup")
             self.setup_kubeconfig()
+            self.end_phase_timer("Kubeconfig Setup")
             
         elif self.phase_only == "management":
-            print("Running Phase 6.5: Management Machine Configuration")
+            self.start_phase_timer("Management Configuration")
             self.configure_management_kubeconfig(refresh_config=self.refresh_kubeconfig)
+            self.end_phase_timer("Management Configuration")
             
         elif self.phase_only == "verify":
-            print("Running Phase 7: Cluster Verification")
+            self.start_phase_timer("Cluster Verification")
             self.verify_cluster()
+            self.end_phase_timer("Cluster Verification")
             
         else:
             print(f"Unknown phase: {self.phase_only}")
             sys.exit(1)
             
-        print(f"\nPhase {self.phase_only} completed successfully!")
+        if not self.verbose:
+            print(f"\nPhase {self.phase_only} completed successfully!")
             
     def run_infrastructure_only(self):
         """Deploy only infrastructure (VMs) with Terraform"""
-        print("Infrastructure-Only Deployment")
-        print("=" * 50)
-        print(f"Project Directory: {self.project_dir}")
-        print(f"Terraform Directory: {self.terraform_dir}")
-        print(f"Expected VMs: {self.vm_count}")
-        print("=" * 50)
+        if self.verbose:
+            print("Infrastructure-Only Deployment")
+            print("=" * 50)
+            print(f"Project Directory: {self.project_dir}")
+            print(f"Terraform Directory: {self.terraform_dir}")
+            print(f"Expected VMs: {self.vm_count}")
+            print("=" * 50)
+        else:
+            print("Infrastructure-Only Deployment")
         
         # Phase -1: Manual cleanup (unless skipped)
         if not self.skip_cleanup or self.force_recreate:
+            self.start_phase_timer("VM Cleanup")
             self.manual_vm_cleanup()
+            self.end_phase_timer("VM Cleanup")
         
         # Phase 0: Reset (unless skipped)
         if not self.skip_terraform_reset or self.force_recreate:
+            self.start_phase_timer("Terraform Reset")
             self.reset_terraform()
+            self.end_phase_timer("Terraform Reset")
         
         # Phase 1: Infrastructure
+        self.start_phase_timer("Infrastructure Deployment")
         self.deploy_infrastructure()
+        self.end_phase_timer("Infrastructure Deployment")
         
-        print("\n" + "=" * 50)
-        print("Infrastructure deployment completed!")
+        print("\nInfrastructure deployment completed!")
         print("=" * 50)
         print("\nNext steps:")
         print("1. Run with --kubespray-only to setup Kubespray")
@@ -1825,49 +1925,63 @@ spec:
         
     def run_configure_mgmt_only(self):
         """Configure management machine kubectl only"""
-        print("Management Configuration Only")
-        print("=" * 50)
+        if self.verbose:
+            print("Management Configuration Only")
+            print("=" * 50)
+        else:
+            print("Management Configuration Only")
         
         # Configure management machine (with refresh option)
+        self.start_phase_timer("Management Configuration")
         success = self.configure_management_kubeconfig(refresh_config=self.refresh_kubeconfig)
+        self.end_phase_timer("Management Configuration")
         
         if success:
-            print("\n" + "=" * 50)
-            print("Management machine configuration completed!")
-            print("=" * 50)
-            print("\nkubectl is now configured to use VIP (10.10.1.30)")
-            print("Test with: kubectl get nodes")
+            print("\nManagement machine configuration completed!")
+            if self.verbose:
+                print("\nkubectl is now configured to use VIP (10.10.1.30)")
+                print("Test with: kubectl get nodes")
         else:
             print("\nManagement configuration completed with warnings.")
-            print("kubectl may work once HAProxy is fully configured.")
+            if self.verbose:
+                print("kubectl may work once HAProxy is fully configured.")
         
     def run_kubespray_only(self):
         """Setup and configure Kubespray only"""
-        print("Kubespray-Only Setup")
-        print("=" * 50)
+        if self.verbose:
+            print("Kubespray-Only Setup")
+            print("=" * 50)
+        else:
+            print("Kubespray-Only Setup")
         
         # Check if infrastructure exists
         if not (self.terraform_dir / "terraform.tfstate").exists():
             print("No Terraform state found. Deploy infrastructure first with --infrastructure-only")
             
         # Phase 2: Setup Kubespray
+        self.start_phase_timer("Kubespray Setup")
         self.setup_kubespray()
+        self.end_phase_timer("Kubespray Setup")
         
         # Phase 3: Configure
+        self.start_phase_timer("Kubespray Configuration")
         self.configure_kubespray()
+        self.end_phase_timer("Kubespray Configuration")
         
-        print("\n" + "=" * 50)
-        print("Kubespray setup completed!")
-        print("=" * 50)
-        print("\nNext steps:")
-        print("1. Run with --kubernetes-only to deploy Kubernetes")
-        print("2. Run with --configure-mgmt-only to configure kubectl")
-        print("3. Or run without flags for remaining phases")
+        print("\nKubespray setup completed!")
+        if self.verbose:
+            print("\nNext steps:")
+            print("1. Run with --kubernetes-only to deploy Kubernetes")
+            print("2. Run with --configure-mgmt-only to configure kubectl")
+            print("3. Or run without flags for remaining phases")
         
     def run_kubernetes_only(self):
         """Deploy Kubernetes cluster only (assumes infrastructure exists)"""
-        print("Kubernetes-Only Deployment")
-        print("=" * 50)
+        if self.verbose:
+            print("Kubernetes-Only Deployment")
+            print("=" * 50)
+        else:
+            print("Kubernetes-Only Deployment")
         
         # Check prerequisites
         if not (self.terraform_dir / "terraform.tfstate").exists():
@@ -1884,25 +1998,35 @@ spec:
             sys.exit(1)
         
         # Phase 4: Test connectivity
+        self.start_phase_timer("Connectivity Test")
         self.test_ansible_connectivity()
+        self.end_phase_timer("Connectivity Test")
         
         # Phase 5: Deploy Kubernetes
+        self.start_phase_timer("Kubernetes Deployment")
         self.deploy_kubernetes()
+        self.end_phase_timer("Kubernetes Deployment")
         
         # Phase 6: Setup kubeconfig
+        self.start_phase_timer("Kubeconfig Setup")
         self.setup_kubeconfig()
+        self.end_phase_timer("Kubeconfig Setup")
         
         # Phase 6.5: Configure management machine
+        self.start_phase_timer("Management Configuration")
         self.configure_management_kubeconfig(refresh_config=self.force_recreate)
+        self.end_phase_timer("Management Configuration")
         
         # HAProxy no longer used - localhost HA mode uses nginx-proxy on worker nodes
-        print(f"\nUsing built-in HA mode: {self.ha_mode} (no external HAProxy needed)")
+        if self.verbose:
+            print(f"\nUsing built-in HA mode: {self.ha_mode} (no external HAProxy needed)")
         
         # Phase 7: Verify
+        self.start_phase_timer("Cluster Verification")
         self.verify_cluster()
+        self.end_phase_timer("Cluster Verification")
         
-        print("\n" + "=" * 50)
-        print("Kubernetes deployment completed!")
+        print("\nKubernetes deployment completed!")
         print("=" * 50)
         print("\nNext steps:")
         print("1. kubectl is configured to use VIP (10.10.1.30)")
@@ -1911,55 +2035,78 @@ spec:
         
     def run_full_deployment(self):
         """Run the complete deployment"""
-        print("Full Kubernetes Cluster Deployment")
-        print("=" * 50)
-        print(f"Project Directory: {self.project_dir}")
-        print(f"Terraform Directory: {self.terraform_dir}")
-        print(f"Expected VMs: {self.vm_count}")
-        print("=" * 50)
+        if self.verbose:
+            print("Full Kubernetes Cluster Deployment")
+            print("=" * 50)
+            print(f"Project Directory: {self.project_dir}")
+            print(f"Terraform Directory: {self.terraform_dir}")
+            print(f"Expected VMs: {self.vm_count}")
+            print("=" * 50)
+        else:
+            print("Full Kubernetes Cluster Deployment")
         
         # Phase -1: Manual cleanup (unless skipped)
         if not self.skip_cleanup:
+            self.start_phase_timer("VM Cleanup")
             self.manual_vm_cleanup()
+            self.end_phase_timer("VM Cleanup")
         
         # Phase 0: Reset (unless skipped)
         if not self.skip_terraform_reset:
+            self.start_phase_timer("Terraform Reset")
             self.reset_terraform()
+            self.end_phase_timer("Terraform Reset")
         
         # Phase 1: Infrastructure
+        self.start_phase_timer("Infrastructure Deployment")
         self.deploy_infrastructure()
+        self.end_phase_timer("Infrastructure Deployment")
         
         # Phase 2: Setup Kubespray
+        self.start_phase_timer("Kubespray Setup")
         self.setup_kubespray()
+        self.end_phase_timer("Kubespray Setup")
         
         # Phase 3: Configure
+        self.start_phase_timer("Kubespray Configuration")
         self.configure_kubespray()
+        self.end_phase_timer("Kubespray Configuration")
         
         # Phase 4: Test connectivity
+        self.start_phase_timer("Connectivity Test")
         self.test_ansible_connectivity()
+        self.end_phase_timer("Connectivity Test")
         
         # Phase 5: Deploy Kubernetes
+        self.start_phase_timer("Kubernetes Deployment")
         self.deploy_kubernetes()
+        self.end_phase_timer("Kubernetes Deployment")
         
         # Phase 6: Setup kubeconfig
+        self.start_phase_timer("Kubeconfig Setup")
         self.setup_kubeconfig()
+        self.end_phase_timer("Kubeconfig Setup")
         
         # Phase 6.5: Configure management machine
+        self.start_phase_timer("Management Configuration")
         self.configure_management_kubeconfig(refresh_config=self.force_recreate)
+        self.end_phase_timer("Management Configuration")
         
         # HAProxy no longer used - localhost HA mode uses nginx-proxy on worker nodes
-        print(f"\nUsing built-in HA mode: {self.ha_mode} (no external HAProxy needed)")
+        if self.verbose:
+            print(f"\nUsing built-in HA mode: {self.ha_mode} (no external HAProxy needed)")
         
         # Phase 7: Verify
+        self.start_phase_timer("Cluster Verification")
         self.verify_cluster()
+        self.end_phase_timer("Cluster Verification")
         
-        print("\n" + "=" * 50)
-        print("Full Kubernetes cluster deployment completed successfully!")
-        print("=" * 50)
-        print("\nNext steps:")
-        print("1. kubectl is configured to use VIP (10.10.1.30)")
-        print("2. Verify cluster: kubectl get nodes")
-        print("3. Deploy applications: kubectl apply -f your-app.yaml")
+        print("\nFull Kubernetes cluster deployment completed successfully!")
+        if self.verbose:
+            print("\nNext steps:")
+            print("1. kubectl is configured to use VIP (10.10.1.30)")
+            print("2. Verify cluster: kubectl get nodes")
+            print("3. Deploy applications: kubectl apply -f your-app.yaml")
         
 
 def main():
@@ -1985,6 +2132,8 @@ def main():
                        help="Fast mode for re-runs: skip downloads, OS bootstrap, and use optimized tags")
     parser.add_argument("--ha-mode", choices=["localhost", "kube-vip", "external"], default="localhost",
                        help="HA mode: localhost (built-in nginx, default), kube-vip (VIP with leader election), external (HAProxy)")
+    parser.add_argument("--verbose", action="store_true", 
+                       help="Enable verbose output (show detailed command output)")
     
     # Individual phase execution flags
     parser.add_argument("--phase", type=str, choices=[
@@ -2030,7 +2179,8 @@ def main():
         force_recreate=args.force_recreate,
         fast_mode=args.fast,
         ha_mode=args.ha_mode,
-        phase_only=args.phase
+        phase_only=args.phase,
+        verbose=args.verbose
     )
     deployer.run()
     
