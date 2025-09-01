@@ -328,6 +328,17 @@ python3 scripts/deploy-applications.py --verify-only
 python3 scripts/deploy-applications.py --skip-prerequisites
 ```
 
+### Automated Improvements and Fixes
+
+The deployment script includes comprehensive automation with lessons learned from production deployments:
+
+- **Reliable Storage Integration**: Uses proxmox-rbd storage class exclusively with proper volume binding
+- **Helm-based Monitoring**: Deploys monitoring stack via Helm for better resource management and reliability
+- **Automatic Cleanup**: Cleans up conflicting ArgoCD applications and resources automatically
+- **Consistent Configuration**: All passwords standardized to `SecurePassword123!` across the platform
+- **Enhanced Error Handling**: Comprehensive retry logic and graceful failure handling
+- **Resource Verification**: Validates all components are healthy before completion
+
 ### Applications Architecture
 
 **Ingress Infrastructure (Deployed Automatically):**
@@ -356,6 +367,8 @@ python3 scripts/deploy-applications.py --skip-prerequisites
 - **Custom Dashboards** - Kubernetes cluster, Proxmox infrastructure, and Ceph storage
 - **Automated Discovery** - ServiceMonitor integration for metrics collection
 - **Credential Security** - All Proxmox CSI credentials managed via .env files (not stored in code)
+- **Consistent Passwords** - Standardized authentication across all platform services
+- **Helm-based Reliability** - Monitoring stack deployed via Helm for better resource management
 
 ### Applications Access via Ingress
 
@@ -365,12 +378,14 @@ python3 scripts/deploy-applications.py --skip-prerequisites
 - **Prometheus Metrics**: http://prometheus.apps.sddc.info/
 
 **Default Credentials:**
-- **Grafana**: Username `admin` / Password `kubernetes-admin-2024`
+- **Grafana**: Username `admin` / Password `SecurePassword123!`
 - **ArgoCD**: Username `admin` / Password from secret:
   ```bash
   kubectl -n argocd get secret argocd-initial-admin-secret \
     -o jsonpath="{.data.password}" | base64 -d
   ```
+
+**Note**: All application passwords are standardized to `SecurePassword123!` for consistency across the platform.
 
 **Alternative Access (Port Forward):**
 ```bash

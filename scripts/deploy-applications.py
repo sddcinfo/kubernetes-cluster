@@ -49,6 +49,9 @@ class ApplicationsDeployer:
             "monitoring/grafana-dashboards.yml"
         ]
         
+        # Standard password for all applications
+        self.standard_password = "SecurePassword123!"
+        
         self.ingress_components = [
             "ingress/complete-ingress-stack.yml",
             "ingress/metallb-ip-pool.yml",
@@ -665,6 +668,203 @@ PROXMOX_INSECURE="true"
         finally:
             self.end_phase_timer("Monitoring Stack")
 
+    def deploy_monitoring_helm(self):
+        """Deploy monitoring stack using Helm with proper storage configuration"""
+        self.start_phase_timer("Monitoring Stack (Helm)")
+        
+        try:
+            # Ensure Helm is available
+            if not self.ensure_helm_available():
+                return False
+                
+            # Create monitoring values with consistent password
+            values_content = self.create_monitoring_helm_values()
+            
+            # Write values to temporary file
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
+                f.write(values_content)
+                values_file = f.name
+            
+            try:
+                # Add Prometheus Helm repo
+                self.run_command(
+                    'helm repo add prometheus-community https://prometheus-community.github.io/helm-charts',
+                    'Add Prometheus Helm repository',
+                    check=False
+                )
+                
+                self.run_command('helm repo update', 'Update Helm repositories')
+                
+                # Clean up any existing ArgoCD application and problematic resources
+                self.cleanup_existing_monitoring()
+                
+                # Ensure clean state for Helm deployment
+                self.run_command(
+                    'kubectl delete application kube-prometheus-stack -n argocd',
+                    'Remove ArgoCD application',
+                    check=False
+                )
+                
+                # Check if release already exists
+                result = self.run_command(
+                    'helm list -n monitoring -o json',
+                    'Check existing Helm releases',
+                    check=False
+                )
+                
+                existing_releases = json.loads(result.stdout) if result.returncode == 0 and result.stdout else []
+                release_exists = any(r['name'] == 'kube-prometheus-stack' for r in existing_releases)
+                
+                if release_exists:
+                    self.log("Upgrading existing monitoring stack...")
+                    cmd = f'helm upgrade kube-prometheus-stack prometheus-community/kube-prometheus-stack --namespace monitoring --values {values_file}'
+                else:
+                    self.log("Installing monitoring stack...")
+                    cmd = f'helm install kube-prometheus-stack prometheus-community/kube-prometheus-stack --namespace monitoring --create-namespace --values {values_file}'
+                
+                result = self.run_command(cmd, 'Deploy monitoring stack')
+                
+                if result.returncode == 0:
+                    self.log("Monitoring stack deployed successfully", "SUCCESS")
+                    
+                    # Wait for pods to be ready
+                    self.log("Waiting for monitoring pods to be ready...")
+                    time.sleep(30)
+                    self.run_command(
+                        "kubectl wait --for=condition=ready --timeout=300s pod -l app.kubernetes.io/name=grafana -n monitoring",
+                        "Wait for Grafana",
+                        check=False
+                    )
+                    return True
+                else:
+                    self.log(f"Monitoring deployment failed: {result.stderr}", "ERROR")
+                    return False
+                    
+            finally:
+                # Clean up temp file
+                Path(values_file).unlink(missing_ok=True)
+                
+        except Exception as e:
+            self.log(f"Failed to deploy monitoring stack: {str(e)}", "ERROR")
+            return False
+        finally:
+            self.end_phase_timer("Monitoring Stack (Helm)")
+    
+    def ensure_helm_available(self):
+        """Ensure Helm is installed and available"""
+        try:
+            result = self.run_command('helm version', 'Check Helm version', check=False)
+            if result.returncode == 0:
+                return True
+            
+            # Install Helm if not available
+            self.log("Installing Helm...")
+            self.run_command(
+                'curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash',
+                'Install Helm'
+            )
+            return True
+            
+        except Exception as e:
+            self.log(f"Failed to ensure Helm availability: {str(e)}", "ERROR")
+            return False
+    
+    def cleanup_existing_monitoring(self):
+        """Clean up any problematic monitoring resources from ArgoCD deployments"""
+        try:
+            # Clean up webhook configurations that might conflict
+            self.run_command(
+                'kubectl delete mutatingwebhookconfiguration kube-prometheus-stack-admission',
+                'Clean up mutating webhook',
+                check=False
+            )
+            
+            self.run_command(
+                'kubectl delete validatingwebhookconfiguration kube-prometheus-stack-admission',
+                'Clean up validating webhook',
+                check=False
+            )
+            
+            # Clean up any leftover services in kube-system
+            services_to_clean = [
+                'kube-prometheus-stack-coredns',
+                'kube-prometheus-stack-kube-controller-manager',
+                'kube-prometheus-stack-kube-etcd',
+                'kube-prometheus-stack-kube-proxy',
+                'kube-prometheus-stack-kube-scheduler',
+                'kube-prometheus-stack-kubelet'
+            ]
+            
+            for service in services_to_clean:
+                self.run_command(
+                    f'kubectl delete service {service} -n kube-system',
+                    f'Clean up {service}',
+                    check=False
+                )
+                
+        except Exception as e:
+            self.log(f"Warning during cleanup: {str(e)}", "WARNING")
+    
+    def create_monitoring_helm_values(self):
+        """Create Helm values with proper storage and consistent passwords"""
+        return f"""# Monitoring stack values with consistent configuration
+prometheus:
+  prometheusSpec:
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: proxmox-rbd
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 50Gi
+    retention: 15d
+    resources:
+      requests:
+        cpu: 200m
+        memory: 1Gi
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+
+grafana:
+  enabled: true
+  adminPassword: {self.standard_password}
+  persistence:
+    enabled: true
+    storageClassName: proxmox-rbd
+    size: 10Gi
+    accessModes:
+    - ReadWriteOnce
+  service:
+    type: LoadBalancer
+    port: 80
+    annotations:
+      metallb.universe.tf/loadBalancerIPs: "10.10.1.50"
+  grafana.ini:
+    server:
+      domain: grafana.apps.sddc.info
+      root_url: http://grafana.apps.sddc.info/
+    users:
+      allow_sign_up: false
+
+alertmanager:
+  enabled: true
+  alertmanagerSpec:
+    storage:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: proxmox-rbd
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 5Gi
+    service:
+      type: LoadBalancer
+      annotations:
+        metallb.universe.tf/loadBalancerIPs: "10.10.1.51"
+"""
+
     # ================== Verification ==================
 
     def verify_deployments(self):
@@ -806,7 +1006,7 @@ PROXMOX_INSECURE="true"
 │  kubectl -n argocd get secret argocd-initial-admin-secret \\     │
 │    -o jsonpath="{{.data.password}}" | base64 -d                    │
 │                                                                    │
-│  Grafana Login: admin / kubernetes-admin-2024                    │
+│  Grafana Login: admin / SecurePassword123!                       │
 │                                                                    │
 └────────────────────────────────────────────────────────────────────┘
 """)
@@ -903,7 +1103,8 @@ PROXMOX_INSECURE="true"
             
             # Monitoring deployment  
             if not self.storage_only:
-                self.deploy_monitoring_stack()
+                # Use Helm-based deployment for better reliability
+                self.deploy_monitoring_helm()
                 
             # Deploy application ingresses
             self.deploy_application_ingresses()

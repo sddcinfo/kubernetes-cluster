@@ -15,7 +15,7 @@ metadata:
 type: Opaque
 stringData:
   admin-user: admin
-  admin-password: kubernetes-admin-2024
+  admin-password: SecurePassword123!
 ---
 # Kube-Prometheus-Stack via ArgoCD
 apiVersion: argoproj.io/v1alpha1
@@ -42,7 +42,7 @@ spec:
             storageSpec:
               volumeClaimTemplate:
                 spec:
-                  storageClassName: local-storage
+                  storageClassName: proxmox-rbd
                   accessModes: ["ReadWriteOnce"]
                   resources:
                     requests:
@@ -108,7 +108,7 @@ spec:
           # Persistent storage
           persistence:
             enabled: true
-            storageClassName: local-storage
+            storageClassName: proxmox-rbd
             size: 20Gi
             accessModes:
             - ReadWriteOnce
@@ -192,7 +192,7 @@ spec:
             storage:
               volumeClaimTemplate:
                 spec:
-                  storageClassName: local-storage
+                  storageClassName: proxmox-rbd
                   accessModes: ["ReadWriteOnce"]
                   resources:
                     requests:
