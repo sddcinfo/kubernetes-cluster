@@ -143,7 +143,7 @@ spec:
       serviceAccountName: proxmox-csi-controller
       containers:
       - name: csi-provisioner
-        image: registry.k8s.io/sig-storage/csi-provisioner:v4.0.0
+        image: registry.k8s.io/sig-storage/csi-provisioner:v5.3.0
         args:
         - --csi-address=$(ADDRESS)
         - --v=2
@@ -156,7 +156,7 @@ spec:
         - name: socket-dir
           mountPath: /var/lib/csi/sockets/pluginproxy/
       - name: csi-attacher
-        image: registry.k8s.io/sig-storage/csi-attacher:v4.5.0
+        image: registry.k8s.io/sig-storage/csi-attacher:v4.9.0
         args:
         - --csi-address=$(ADDRESS)
         - --v=2
@@ -167,7 +167,7 @@ spec:
         - name: socket-dir
           mountPath: /var/lib/csi/sockets/pluginproxy/
       - name: proxmox-csi-plugin
-        image: ghcr.io/sergelogvinov/proxmox-csi-plugin:v0.2.8
+        image: ghcr.io/sergelogvinov/proxmox-csi-controller:edge
         args:
         - --endpoint=$(CSI_ENDPOINT)
         - --node-id=$(NODE_ID)
@@ -211,7 +211,7 @@ spec:
       hostNetwork: true
       containers:
       - name: csi-node-driver-registrar
-        image: registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.10.0
+        image: registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.14.0
         args:
         - --csi-address=$(ADDRESS)
         - --kubelet-registration-path=$(DRIVER_REG_SOCK_PATH)
@@ -227,7 +227,7 @@ spec:
         - name: registration-dir
           mountPath: /registration/
       - name: proxmox-csi-plugin
-        image: ghcr.io/sergelogvinov/proxmox-csi-plugin:v0.2.8
+        image: ghcr.io/sergelogvinov/proxmox-csi-node:edge
         args:
         - --endpoint=$(CSI_ENDPOINT)
         - --node-id=$(NODE_ID)

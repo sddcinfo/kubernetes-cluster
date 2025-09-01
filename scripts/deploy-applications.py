@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
 """
 Kubernetes Applications Deployment Script
-Deploys monitoring stack, storage integration, and observability platform
+Complete deployment of storage, monitoring, and ingress with full automation
 """
 
 import json
 import subprocess
 import sys
 import time
+import yaml
+import tempfile
 import argparse
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime
+from urllib.parse import urlparse
 
 
 class ApplicationsDeployer:
@@ -27,18 +30,19 @@ class ApplicationsDeployer:
         self.skip_prerequisites = skip_prerequisites
         self.verbose = verbose
         
-        # DNS configuration script path
+        # Configuration files
+        self.proxmox_env_file = self.project_dir / '.proxmox-csi.env'
+        self.proxmox_env_template = self.project_dir / '.proxmox-csi.env.template'
         self.dns_config_script = self.project_dir / "scripts" / "deploy-dns-config.py"
         
         # Timing tracking
         self.start_time = None
         self.phase_times = {}
         
-        # Application components
-        self.storage_components = [
-            "storage/proxmox-csi-plugin.yml"
-        ]
+        # Proxmox configuration
+        self.proxmox_config = {}
         
+        # Application components
         self.monitoring_components = [
             "monitoring/kube-prometheus-stack.yml",
             "monitoring/proxmox-exporter.yml", 
@@ -119,7 +123,9 @@ class ApplicationsDeployer:
             duration = time.time() - self.phase_times[phase_name]["start"]
             self.phase_times[phase_name]["duration"] = duration
             self.log(f"Completed {phase_name} in {duration:.1f}s", "SUCCESS")
-        
+
+    # ================== Prerequisites and Setup ==================
+
     def check_prerequisites(self):
         """Verify cluster and ArgoCD are ready for applications deployment"""
         self.start_phase_timer("Prerequisites Check")
@@ -135,15 +141,6 @@ class ApplicationsDeployer:
                                     "Check node status")
             if result.stdout.strip():
                 self.log("Some nodes are not ready. Proceeding with caution...", "WARNING")
-                
-            # Check for storage class (if not deploying storage-only)
-            if not self.storage_only:
-                self.log("Checking for available storage classes...")
-                result = self.run_command("kubectl get storageclass --no-headers | wc -l",
-                                        "Count storage classes")
-                sc_count = int(result.stdout.strip())
-                if sc_count == 0:
-                    self.log("No storage classes found. Consider running --storage-only first.", "WARNING")
             
             # Check ArgoCD installation
             self.log("Checking ArgoCD installation...")
@@ -182,41 +179,306 @@ class ApplicationsDeployer:
         
         self.log("ArgoCD installed successfully", "SUCCESS")
 
-    def deploy_storage_integration(self):
-        """Deploy Proxmox CSI plugin and storage classes"""
-        self.start_phase_timer("Storage Integration")
+    # ================== Proxmox CSI Storage Integration ==================
+
+    def load_proxmox_config(self):
+        """Load Proxmox configuration from .env file"""
+        if not self.proxmox_env_file.exists():
+            # Create template if it doesn't exist
+            if not self.proxmox_env_template.exists():
+                template_content = """# Proxmox CSI Plugin Configuration Template
+# Copy this file to .proxmox-csi.env and update with your values
+PROXMOX_URL="https://PROXMOX_IP:8006/api2/json"
+PROXMOX_TOKEN_ID="kubernetes-csi@pve!csi"
+PROXMOX_TOKEN_SECRET="YOUR_TOKEN_SECRET_HERE"
+PROXMOX_REGION="cluster"
+PROXMOX_STORAGE="rbd"
+PROXMOX_INSECURE="true"
+"""
+                self.proxmox_env_template.write_text(template_content)
+                
+            self.log(f"Proxmox credentials file not found: {self.proxmox_env_file}", "WARNING")
+            self.log(f"Copy template: cp {self.proxmox_env_template} {self.proxmox_env_file}", "INFO")
+            return False
+
+        try:
+            with open(self.proxmox_env_file, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith('#') and '=' in line:
+                        key, value = line.split('=', 1)
+                        self.proxmox_config[key] = value.strip('"')
+            
+            self.log("Loaded Proxmox CSI configuration", "SUCCESS")
+            return True
+        except Exception as e:
+            self.log(f"Failed to load Proxmox configuration: {str(e)}", "ERROR")
+            return False
+
+    def validate_proxmox_config(self):
+        """Validate Proxmox configuration parameters"""
+        required_keys = [
+            'PROXMOX_URL', 'PROXMOX_TOKEN_ID', 'PROXMOX_TOKEN_SECRET',
+            'PROXMOX_REGION', 'PROXMOX_STORAGE'
+        ]
+        
+        missing_keys = [key for key in required_keys if key not in self.proxmox_config]
+        if missing_keys:
+            self.log(f"Missing required Proxmox configuration: {', '.join(missing_keys)}", "ERROR")
+            return False
+
+        # Validate URL format
+        try:
+            parsed_url = urlparse(self.proxmox_config['PROXMOX_URL'])
+            if not all([parsed_url.scheme, parsed_url.netloc]):
+                self.log("Invalid PROXMOX_URL format", "ERROR")
+                return False
+        except Exception:
+            self.log("Invalid PROXMOX_URL format", "ERROR")
+            return False
+
+        self.log("Proxmox configuration validation passed", "SUCCESS")
+        return True
+
+    def test_proxmox_connection(self):
+        """Test connection to Proxmox using provided credentials"""
+        try:
+            import requests
+            from requests.packages.urllib3.exceptions import InsecureRequestWarning
+            
+            if self.proxmox_config.get('PROXMOX_INSECURE', 'false').lower() == 'true':
+                requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
+            
+            headers = {
+                'Authorization': f"PVEAPIToken={self.proxmox_config['PROXMOX_TOKEN_ID']}={self.proxmox_config['PROXMOX_TOKEN_SECRET']}"
+            }
+            
+            verify_ssl = self.proxmox_config.get('PROXMOX_INSECURE', 'false').lower() != 'true'
+            
+            response = requests.get(
+                f"{self.proxmox_config['PROXMOX_URL'].rstrip('/')}/version",
+                headers=headers,
+                verify=verify_ssl,
+                timeout=10
+            )
+            
+            if response.status_code == 200:
+                self.log("Proxmox API connection successful", "SUCCESS")
+                return True
+            else:
+                self.log(f"Proxmox API connection failed: HTTP {response.status_code}", "ERROR")
+                return False
+                
+        except ImportError:
+            self.log("requests library not available, skipping connection test", "WARNING")
+            return True
+        except Exception as e:
+            self.log(f"Failed to test Proxmox connection: {str(e)}", "ERROR")
+            return False
+
+    def setup_proxmox_user(self):
+        """Create CSI user and token in Proxmox if needed"""
+        parsed_url = urlparse(self.proxmox_config['PROXMOX_URL'])
+        proxmox_host = parsed_url.hostname
+        
+        self.log(f"Checking CSI user on Proxmox {proxmox_host}...")
+        
+        # Check if user exists
+        result = self.run_command(
+            f"ssh root@{proxmox_host} 'pveum user list | grep kubernetes-csi@pve || echo NOT_FOUND'",
+            "Check CSI user", check=False
+        )
+        
+        if "NOT_FOUND" in result.stdout:
+            self.log("Creating Proxmox CSI user and token...")
+            
+            commands = [
+                "pveum role add CSI -privs 'VM.Audit VM.Config.Disk Datastore.Allocate Datastore.AllocateSpace Datastore.Audit' || true",
+                "pveum user add kubernetes-csi@pve --comment 'Kubernetes CSI Plugin User'",
+                "pveum aclmod / -user kubernetes-csi@pve -role CSI",
+                "pveum user token add kubernetes-csi@pve csi -privsep 0 --comment 'Kubernetes CSI Plugin Token'"
+            ]
+            
+            for cmd in commands:
+                result = self.run_command(
+                    f"ssh root@{proxmox_host} \"{cmd}\"",
+                    f"Setup CSI: {cmd[:30]}...", check=False
+                )
+                
+                if result.returncode != 0 and "already exists" not in result.stderr:
+                    self.log(f"Command warning: {result.stderr}", "WARNING")
+                    
+            self.log("Proxmox CSI user setup completed", "SUCCESS")
+            self.log("Update .proxmox-csi.env with the new token!", "WARNING")
+        else:
+            self.log("Proxmox CSI user already exists", "SUCCESS")
+
+    def label_nodes_for_csi(self):
+        """Label Kubernetes nodes with Proxmox topology"""
+        self.log("Labeling nodes with topology information...")
         
         try:
-            self.log("Deploying Proxmox CSI storage integration...")
+            result = self.run_command(['kubectl', 'get', 'nodes', '-o', 'json'],
+                                     "Get nodes", check=True)
             
-            for component in self.storage_components:
-                component_path = self.applications_dir / component
-                if not component_path.exists():
-                    self.log(f"Component not found: {component}", "ERROR")
+            nodes = json.loads(result.stdout)
+            
+            for node in nodes['items']:
+                node_name = node['metadata']['name']
+                
+                # Extract zone from node name
+                if 'control' in node_name:
+                    zone_num = node_name.split('-')[-1]
+                    zone = f"node{zone_num}"
+                elif 'worker' in node_name:
+                    zone_num = node_name.split('-')[-1]
+                    zone = f"node{zone_num}"
+                else:
+                    zone = "node1"
+                
+                labels = [
+                    f"topology.kubernetes.io/region={self.proxmox_config['PROXMOX_REGION']}",
+                    f"topology.kubernetes.io/zone={zone}"
+                ]
+                
+                for label in labels:
+                    self.run_command(
+                        ['kubectl', 'label', 'nodes', node_name, label, '--overwrite'],
+                        f"Label {node_name}", check=False
+                    )
+                    
+            self.log("Node labeling completed", "SUCCESS")
+            return True
+            
+        except Exception as e:
+            self.log(f"Failed to label nodes: {str(e)}", "ERROR")
+            return False
+
+    def deploy_proxmox_csi(self):
+        """Deploy Proxmox CSI driver using official manifest"""
+        self.start_phase_timer("Proxmox CSI Deployment")
+        
+        try:
+            # Load and validate configuration
+            if not self.load_proxmox_config():
+                self.log("Cannot deploy CSI without configuration", "ERROR")
+                return False
+                
+            if not self.validate_proxmox_config():
+                return False
+                
+            if not self.test_proxmox_connection():
+                self.log("Proxmox connection failed. Check credentials.", "WARNING")
+            
+            # Download official deployment
+            self.log("Downloading official Proxmox CSI deployment...")
+            result = self.run_command(
+                'curl -s https://raw.githubusercontent.com/sergelogvinov/proxmox-csi-plugin/main/docs/deploy/proxmox-csi-plugin.yml',
+                "Download CSI manifest"
+            )
+            
+            if result.returncode != 0:
+                self.log("Failed to download CSI manifest", "ERROR")
+                return False
+            
+            # Parse and modify YAML
+            docs = list(yaml.safe_load_all(result.stdout))
+            
+            # Create CSI config secret
+            csi_secret = {
+                'apiVersion': 'v1',
+                'kind': 'Secret',
+                'metadata': {
+                    'name': 'proxmox-csi-plugin',
+                    'namespace': 'csi-proxmox'
+                },
+                'type': 'Opaque',
+                'stringData': {
+                    'config.yaml': yaml.dump({
+                        'clusters': [{
+                            'url': self.proxmox_config['PROXMOX_URL'],
+                            'insecure': self.proxmox_config.get('PROXMOX_INSECURE', 'false').lower() == 'true',
+                            'token_id': self.proxmox_config['PROXMOX_TOKEN_ID'],
+                            'token_secret': self.proxmox_config['PROXMOX_TOKEN_SECRET'],
+                            'region': self.proxmox_config['PROXMOX_REGION']
+                        }]
+                    }, default_flow_style=False)
+                }
+            }
+            
+            # Modify storage classes and build final manifest
+            final_docs = []
+            storage_class_added = False
+            
+            for doc in docs:
+                if not doc:
                     continue
                     
-                self.log(f"Applying {component}...")
-                self.run_command(f"kubectl apply -f {component_path}", 
-                               f"Deploy {component}")
+                # Add secret after namespace
+                if doc.get('kind') == 'Namespace':
+                    final_docs.append(doc)
+                    final_docs.append(csi_secret)
+                    
+                # Replace storage classes with our RBD configuration
+                elif doc.get('kind') == 'StorageClass':
+                    if not storage_class_added:
+                        doc['metadata']['name'] = 'proxmox-rbd'
+                        doc['metadata']['annotations'] = {
+                            'storageclass.kubernetes.io/is-default-class': 'true'
+                        }
+                        doc['parameters'] = {
+                            'csi.storage.k8s.io/fstype': 'ext4',
+                            'storage': self.proxmox_config['PROXMOX_STORAGE']
+                        }
+                        final_docs.append(doc)
+                        storage_class_added = True
+                        self.log(f"Configured storage class for RBD: {self.proxmox_config['PROXMOX_STORAGE']}", "SUCCESS")
+                else:
+                    final_docs.append(doc)
             
-            # Wait for CSI driver to be ready
-            self.log("Waiting for CSI driver to be ready...")
-            self.run_command("kubectl wait --for=condition=available --timeout=300s deployment/proxmox-csi-controller -n csi-proxmox || true",
-                           "Wait for CSI controller")
-                           
-            # Verify storage classes
-            self.log("Verifying storage classes...")
-            result = self.run_command("kubectl get storageclass", "List storage classes")
-            if "proxmox-rbd" in result.stdout:
-                self.log("Proxmox RBD storage class created successfully", "SUCCESS")
-            else:
-                self.log("Storage class creation may have failed", "WARNING")
+            # Apply the manifest
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.yml', delete=False) as f:
+                yaml.dump_all(final_docs, f, default_flow_style=False)
+                temp_file = f.name
+            
+            self.log("Applying Proxmox CSI deployment...")
+            result = self.run_command(f'kubectl apply -f {temp_file}', "Apply CSI manifest")
+            
+            if result.returncode == 0:
+                self.log("CSI deployment applied successfully", "SUCCESS")
                 
+                # Label nodes for topology
+                self.label_nodes_for_csi()
+                
+                # Wait for CSI pods to be ready
+                self.log("Waiting for CSI pods to be ready...")
+                time.sleep(10)
+                
+                result = self.run_command(
+                    "kubectl get pods -n csi-proxmox --no-headers | grep -v Running | wc -l",
+                    "Check CSI pod status"
+                )
+                
+                non_running = int(result.stdout.strip())
+                if non_running == 0:
+                    self.log("All CSI pods are running", "SUCCESS")
+                else:
+                    self.log(f"{non_running} CSI pods still starting", "WARNING")
+            else:
+                self.log("Failed to apply CSI deployment", "ERROR")
+                return False
+            
+            # Clean up temp file
+            Path(temp_file).unlink()
+            return True
+            
         except Exception as e:
-            self.log(f"Storage integration deployment failed: {str(e)}", "ERROR")
-            raise
+            self.log(f"CSI deployment failed: {str(e)}", "ERROR")
+            return False
         finally:
-            self.end_phase_timer("Storage Integration")
+            self.end_phase_timer("Proxmox CSI Deployment")
+
+    # ================== Ingress Infrastructure ==================
 
     def check_ingress_deployed(self):
         """Check if ingress stack is already deployed and healthy"""
@@ -360,6 +622,8 @@ class ApplicationsDeployer:
         except Exception as e:
             self.log(f"DNS configuration failed: {str(e)}", "WARNING")
 
+    # ================== Monitoring Stack ==================
+
     def deploy_monitoring_stack(self):
         """Deploy comprehensive monitoring with Prometheus and Grafana"""
         self.start_phase_timer("Monitoring Stack")
@@ -401,12 +665,33 @@ class ApplicationsDeployer:
         finally:
             self.end_phase_timer("Monitoring Stack")
 
+    # ================== Verification ==================
+
     def verify_deployments(self):
         """Verify all applications are deployed and healthy"""
         self.start_phase_timer("Verification")
         
         try:
             self.log("Verifying application deployments...")
+            
+            # Check CSI driver
+            self.log("Checking Proxmox CSI driver...")
+            result = self.run_command("kubectl get pods -n csi-proxmox --no-headers 2>/dev/null | grep Running | wc -l",
+                                     "Check CSI pods")
+            if result.returncode == 0:
+                running_pods = int(result.stdout.strip())
+                if running_pods > 0:
+                    self.log(f"✓ Proxmox CSI: {running_pods} pods running", "SUCCESS")
+                else:
+                    self.log("✗ Proxmox CSI pods not running", "WARNING")
+            
+            # Check storage class
+            result = self.run_command("kubectl get storageclass proxmox-rbd --no-headers 2>/dev/null | wc -l",
+                                     "Check storage class")
+            if result.returncode == 0 and int(result.stdout.strip()) > 0:
+                self.log("✓ Proxmox RBD storage class configured", "SUCCESS")
+            else:
+                self.log("✗ Proxmox RBD storage class not found", "WARNING")
             
             # Check ingress infrastructure
             self.log("Checking ingress infrastructure...")
@@ -420,7 +705,7 @@ class ApplicationsDeployer:
                 self.log("✗ MetalLB controller not found", "ERROR")
             
             # Check NGINX Ingress
-            result = self.run_command("kubectl get deployment -n ingress-nginx -l app.kubernetes.io/name=ingress-nginx --no-headers | wc -l",
+            result = self.run_command("kubectl get deployment -n ingress-nginx -l app.kubernetes.io/name=ingress-nginx --no-headers 2>/dev/null | wc -l",
                                      "Check NGINX Ingress")
             if int(result.stdout.strip()) > 0:
                 self.log("✓ NGINX Ingress Controller is deployed", "SUCCESS")
@@ -443,16 +728,6 @@ class ApplicationsDeployer:
                 self.log(f"✓ {ingress_count} ingress resources configured", "SUCCESS")
             else:
                 self.log("No ingress resources found", "WARNING")
-            
-            # Check storage integration
-            if not self.monitoring_only:
-                self.log("Checking storage integration...")
-                result = self.run_command("kubectl get storageclass proxmox-rbd -o jsonpath='{.metadata.name}' 2>/dev/null || echo 'not-found'",
-                                         "Check storage class")
-                if result.stdout.strip() == "proxmox-rbd":
-                    self.log("✓ Proxmox RBD storage class is available", "SUCCESS")
-                else:
-                    self.log("✗ Proxmox RBD storage class not found", "ERROR")
             
             # Check monitoring stack
             if not self.storage_only:
@@ -490,7 +765,7 @@ class ApplicationsDeployer:
                 
             # Overall health check
             self.log("Checking overall application health...")
-            result = self.run_command("kubectl get pods --all-namespaces | grep -E '(Error|CrashLoopBackOff|ImagePullBackOff|Pending)' | wc -l",
+            result = self.run_command("kubectl get pods --all-namespaces | grep -E '(Error|CrashLoopBackOff|ImagePullBackOff)' | wc -l",
                                      "Check for problematic pods")
             problem_pods = int(result.stdout.strip())
             if problem_pods == 0:
@@ -504,6 +779,8 @@ class ApplicationsDeployer:
         finally:
             self.end_phase_timer("Verification")
 
+    # ================== Access Information ==================
+
     def print_access_information(self):
         """Print information about accessing deployed services"""
         self.log("Deployment Access Information", "PHASE")
@@ -516,7 +793,7 @@ class ApplicationsDeployer:
             
             if ingress_ip != "pending":
                 print(f"""
-┌─ Applications Access via Ingress ─────────────────────────────────┐
+┌─ Applications Access via Ingress ──────────────────────────────────┐
 │                                                                    │
 │  Ingress Controller IP: {ingress_ip}                              │
 │                                                                    │
@@ -535,7 +812,7 @@ class ApplicationsDeployer:
 """)
             else:
                 print(f"""
-┌─ Applications Access Information ─────────────────────────────────┐
+┌─ Applications Access Information ──────────────────────────────────┐
 │                                                                    │
 │  Ingress LoadBalancer IP is still pending                        │
 │  Use port-forward for immediate access:                          │
@@ -560,8 +837,7 @@ class ApplicationsDeployer:
 ┌─ Storage Integration ──────────────────────────────────────────────┐
 │                                                                    │
 │  Available Storage Classes: {sc_count}                            │
-│     • proxmox-rbd (default)                                       │ 
-│     • proxmox-rbd-fast                                            │
+│     • proxmox-rbd (default) - RBD storage pool                    │
 │                                                                    │
 │  Test persistent storage:                                         │
 │     kubectl apply -f - <<EOF                                      │
@@ -601,6 +877,8 @@ class ApplicationsDeployer:
 └────────────────────────────────────────────────────────────────────┘
 """)
 
+    # ================== Main Deployment ==================
+
     def deploy(self):
         """Main deployment orchestrator"""
         self.start_time = time.time()
@@ -619,9 +897,9 @@ class ApplicationsDeployer:
             # Configure ArgoCD for HTTP ingress
             self.configure_argocd_insecure()
             
-            # Storage deployment
+            # Storage deployment (Proxmox CSI)
             if not self.monitoring_only:
-                self.deploy_storage_integration()
+                self.deploy_proxmox_csi()
             
             # Monitoring deployment  
             if not self.storage_only:
@@ -649,14 +927,14 @@ class ApplicationsDeployer:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Deploy Kubernetes applications with monitoring and storage integration",
+        description="Deploy Kubernetes applications with monitoring, storage, and ingress",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Deploy everything (storage + monitoring)
+  # Deploy everything (storage + monitoring + ingress)
   python3 scripts/deploy-applications.py
   
-  # Deploy only storage integration
+  # Deploy only storage integration (Proxmox CSI)
   python3 scripts/deploy-applications.py --storage-only
   
   # Deploy only monitoring stack
@@ -667,6 +945,10 @@ Examples:
   
   # Skip prerequisites check (faster re-runs)
   python3 scripts/deploy-applications.py --skip-prerequisites
+  
+Configuration:
+  The Proxmox CSI driver requires a .proxmox-csi.env file with credentials.
+  If missing, a template will be created for you to fill in.
         """
     )
     

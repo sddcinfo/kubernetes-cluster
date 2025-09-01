@@ -337,9 +337,10 @@ python3 scripts/deploy-applications.py --skip-prerequisites
 - **ArgoCD HTTP Configuration** - Insecure mode for HTTP ingress access
 
 **Storage Integration:**
-- **Proxmox CSI Plugin** - Dynamic persistent volume provisioning
-- **Ceph RBD Integration** - Distributed storage backend
-- **Storage Classes**: `proxmox-rbd` (default), `proxmox-rbd-fast`
+- **Proxmox CSI Plugin** - Dynamic persistent volume provisioning with automated credential management
+- **Ceph RBD Integration** - Distributed storage backend using only the RBD pool
+- **Storage Classes**: `proxmox-rbd` (default with ext4 filesystem)
+- **Node Topology Labeling** - Automatic region/zone labeling for storage affinity
 
 **Monitoring Stack:**
 - **Prometheus** - Metrics collection and storage (100Gi persistent storage)
@@ -348,12 +349,13 @@ python3 scripts/deploy-applications.py --skip-prerequisites
 - **Proxmox Exporter** - Infrastructure metrics collection
 
 **Key Features:**
-- **Zero-Touch Deployment** - Complete automation including DNS configuration
+- **Zero-Touch Deployment** - Complete automation including DNS configuration and credential management
 - **Ingress-Based Access** - All services accessible via user-friendly URLs
-- **Persistent Storage** - All monitoring components use Proxmox Ceph RBD
+- **Persistent Storage** - All monitoring components use Proxmox Ceph RBD with automated provisioning
 - **High Availability** - Prometheus and AlertManager with 2 replicas
 - **Custom Dashboards** - Kubernetes cluster, Proxmox infrastructure, and Ceph storage
 - **Automated Discovery** - ServiceMonitor integration for metrics collection
+- **Credential Security** - All Proxmox CSI credentials managed via .env files (not stored in code)
 
 ### Applications Access via Ingress
 
@@ -389,6 +391,33 @@ kubectl port-forward -n monitoring svc/kube-prometheus-stack-alertmanager 9093:9
 # Access: http://localhost:9093
 ```
 
+### Storage Configuration
+
+#### Proxmox CSI Setup
+
+The applications deployment script automatically handles Proxmox CSI configuration:
+
+1. **Credential Management**: Checks for `.proxmox-csi.env` file and creates template if missing
+2. **Node Labeling**: Automatically labels all Kubernetes nodes with topology information
+3. **Storage Class Creation**: Creates `proxmox-rbd` storage class using only the RBD pool
+4. **Deployment**: Deploys official Proxmox CSI plugin with edge images
+
+**Required Configuration File**: `.proxmox-csi.env`
+```bash
+PROXMOX_URL="https://10.10.1.21:8006/api2/json"
+PROXMOX_TOKEN_ID="kubernetes-csi@pve!csi"
+PROXMOX_TOKEN_SECRET="your-token-secret-here"
+PROXMOX_REGION="cluster"
+PROXMOX_STORAGE="rbd"
+PROXMOX_INSECURE="true"
+```
+
+**Automatic Proxmox User Creation** (requires SSH access to Proxmox):
+```bash
+# Create CSI user and token on Proxmox
+python3 scripts/deploy-applications.py --create-proxmox-user
+```
+
 ### Storage Testing
 
 Test persistent volume provisioning:
@@ -407,8 +436,12 @@ spec:
       storage: 1Gi
 EOF
 
-# Verify PVC is bound
+# Verify PVC is bound and check Proxmox
 kubectl get pvc test-pvc
+kubectl describe pvc test-pvc
+
+# Check created volume in Proxmox (should appear in RBD storage)
+# Volume name format: vm-<id>-pvc-<uuid>
 
 # Cleanup
 kubectl delete pvc test-pvc

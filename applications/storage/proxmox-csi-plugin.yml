@@ -31,7 +31,7 @@ metadata:
     storageclass.kubernetes.io/is-default-class: "true"
 provisioner: csi.proxmox.sinextra.dev
 parameters:
-  storage: ceph-rbd
+  storage: rbd
   csi.storage.k8s.io/fstype: ext4
 allowVolumeExpansion: true
 volumeBindingMode: WaitForFirstConsumer
@@ -44,7 +44,7 @@ metadata:
   name: proxmox-rbd-fast
 provisioner: csi.proxmox.sinextra.dev
 parameters:
-  storage: ceph-rbd-fast
+  storage: rbd-fast
   csi.storage.k8s.io/fstype: ext4
 allowVolumeExpansion: true
 volumeBindingMode: WaitForFirstConsumer
@@ -97,12 +97,12 @@ spec:
         # Storage classes
         storageClass:
         - name: proxmox-rbd
-          storage: ceph-rbd
+          storage: rbd
           reclaimPolicy: Delete
           allowVolumeExpansion: true
           isDefault: true
         - name: proxmox-rbd-fast  
-          storage: ceph-rbd-fast
+          storage: rbd-fast
           reclaimPolicy: Delete
           allowVolumeExpansion: true
           isDefault: false
