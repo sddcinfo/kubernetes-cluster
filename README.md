@@ -301,6 +301,90 @@ python3 scripts/deploy-fresh-cluster.py --kubernetes-only --fast
 - **Fast Mode**: 5-15 minutes (optimized re-run)
 - **Time Savings**: 50-70% reduction in deployment time
 
+## Applications Deployment
+
+### Monitoring and Observability Stack
+
+Deploy comprehensive monitoring with Prometheus, Grafana, and persistent storage:
+
+```bash
+# Deploy complete applications stack (storage + monitoring)
+python3 scripts/deploy-applications.py
+
+# Deploy only storage integration
+python3 scripts/deploy-applications.py --storage-only
+
+# Deploy only monitoring stack
+python3 scripts/deploy-applications.py --monitoring-only
+
+# Verify existing deployments
+python3 scripts/deploy-applications.py --verify-only
+```
+
+### Applications Architecture
+
+**Storage Integration:**
+- **Proxmox CSI Plugin** - Dynamic persistent volume provisioning
+- **Ceph RBD Integration** - Distributed storage backend
+- **Storage Classes**: `proxmox-rbd` (default), `proxmox-rbd-fast`
+
+**Monitoring Stack:**
+- **Prometheus** - Metrics collection and storage (100Gi persistent storage)
+- **Grafana** - Visualization dashboards with LoadBalancer (10.10.1.50)
+- **AlertManager** - Alert processing and notifications
+- **Proxmox Exporter** - Infrastructure metrics collection
+
+**Key Features:**
+- **Persistent Storage** - All monitoring components use Proxmox Ceph RBD
+- **High Availability** - Prometheus and AlertManager with 2 replicas
+- **LoadBalancer Integration** - Grafana accessible via MetalLB (10.10.1.50)
+- **Custom Dashboards** - Kubernetes cluster, Proxmox infrastructure, and Ceph storage
+- **Automated Discovery** - ServiceMonitor integration for metrics collection
+
+### Applications Access
+
+**Grafana Dashboard:**
+- URL: http://10.10.1.50/ (LoadBalancer IP)
+- Username: `admin`
+- Password: `kubernetes-admin-2024`
+
+**Prometheus Metrics:**
+```bash
+kubectl port-forward -n monitoring svc/kube-prometheus-stack-prometheus 9090:9090
+# Access: http://localhost:9090
+```
+
+**AlertManager:**
+```bash  
+kubectl port-forward -n monitoring svc/kube-prometheus-stack-alertmanager 9093:9093
+# Access: http://localhost:9093
+```
+
+### Storage Testing
+
+Test persistent volume provisioning:
+
+```bash
+# Create test PVC
+kubectl apply -f - <<EOF
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: test-pvc
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+EOF
+
+# Verify PVC is bound
+kubectl get pvc test-pvc
+
+# Cleanup
+kubectl delete pvc test-pvc
+```
+
 ## Operations
 
 ## Cluster Status and Access
@@ -321,28 +405,33 @@ kubectl cluster-info
 
 ### Management Interfaces
 
-**Kubernetes Dashboard**
-```bash
-kubectl proxy
-# Access: http://localhost:8001/api/v1/namespaces/kubernetes-dashboard/services/https:kubernetes-dashboard:/proxy/
-```
-
-**Grafana Monitoring**
-```bash
-kubectl port-forward -n monitoring svc/prometheus-grafana 3000:80
-# Access: http://localhost:3000 (admin/admin)
-```
+**Grafana Monitoring Dashboard** (Primary)
+- Direct LoadBalancer Access: http://10.10.1.50/
+- Username: `admin` / Password: `kubernetes-admin-2024`
+- Features: Kubernetes cluster metrics, Proxmox infrastructure, Ceph storage
 
 **Prometheus Metrics**
 ```bash
-kubectl port-forward -n monitoring svc/prometheus-kube-prometheus-prometheus 9090:9090
+kubectl port-forward -n monitoring svc/kube-prometheus-stack-prometheus 9090:9090
 # Access: http://localhost:9090
+```
+
+**AlertManager**
+```bash
+kubectl port-forward -n monitoring svc/kube-prometheus-stack-alertmanager 9093:9093
+# Access: http://localhost:9093
 ```
 
 **Cilium Hubble UI**
 ```bash
 kubectl port-forward -n kube-system svc/hubble-ui 12000:80
 # Access: http://localhost:12000
+```
+
+**Kubernetes Dashboard** (Optional)
+```bash
+kubectl proxy
+# Access: http://localhost:8001/api/v1/namespaces/kubernetes-dashboard/services/https:kubernetes-dashboard:/proxy/
 ```
 
 ### Scaling Operations

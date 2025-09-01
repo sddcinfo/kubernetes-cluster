@@ -1,0 +1,156 @@
+---
+# Proxmox VE Exporter for detailed cluster metrics
+# Provides comprehensive monitoring of Proxmox infrastructure
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: proxmox-monitoring
+---
+# Proxmox VE credentials secret
+apiVersion: v1
+kind: Secret
+metadata:
+  name: proxmox-credentials
+  namespace: proxmox-monitoring  
+type: Opaque
+stringData:
+  PVE_USER: "kubernetes@pve"
+  PVE_PASSWORD: "your-proxmox-password-here"
+  PVE_VERIFY_SSL: "false"
+---
+# Proxmox VE Exporter Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: proxmox-exporter
+  namespace: proxmox-monitoring
+  labels:
+    app: proxmox-exporter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: proxmox-exporter
+  template:
+    metadata:
+      labels:
+        app: proxmox-exporter
+    spec:
+      containers:
+      - name: proxmox-exporter
+        image: prompve/prometheus-pve-exporter:latest
+        ports:
+        - containerPort: 9221
+          name: metrics
+        env:
+        - name: PVE_USER
+          valueFrom:
+            secretKeyRef:
+              name: proxmox-credentials
+              key: PVE_USER
+        - name: PVE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: proxmox-credentials
+              key: PVE_PASSWORD
+        - name: PVE_VERIFY_SSL
+          valueFrom:
+            secretKeyRef:
+              name: proxmox-credentials
+              key: PVE_VERIFY_SSL
+        args:
+        - --config.file=/etc/prometheus/pve.yml
+        volumeMounts:
+        - name: config
+          mountPath: /etc/prometheus
+          readOnly: true
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi
+        livenessProbe:
+          httpGet:
+            path: /metrics
+            port: 9221
+          initialDelaySeconds: 30
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /metrics
+            port: 9221
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      - name: config
+        configMap:
+          name: proxmox-exporter-config
+---
+# Proxmox Exporter Configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: proxmox-exporter-config
+  namespace: proxmox-monitoring
+data:
+  pve.yml: |
+    default:
+      user: kubernetes@pve
+      password: your-proxmox-password-here  
+      verify_ssl: false
+      
+    # Proxmox cluster nodes
+    modules:
+      default:
+        - node1.sddc.info:8006
+        - node2.sddc.info:8006  
+        - node3.sddc.info:8006
+        - node4.sddc.info:8006
+---
+# Proxmox Exporter Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: proxmox-exporter
+  namespace: proxmox-monitoring
+  labels:
+    app: proxmox-exporter
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9221"
+    prometheus.io/path: "/pve"
+spec:
+  type: ClusterIP
+  ports:
+  - port: 9221
+    targetPort: 9221
+    protocol: TCP
+    name: metrics
+  selector:
+    app: proxmox-exporter
+---
+# ServiceMonitor for Prometheus discovery
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: proxmox-exporter
+  namespace: proxmox-monitoring
+  labels:
+    app: proxmox-exporter
+spec:
+  selector:
+    matchLabels:
+      app: proxmox-exporter
+  endpoints:
+  - port: metrics
+    path: /pve
+    interval: 60s
+    scrapeTimeout: 30s
+    params:
+      target:
+      - node1.sddc.info:8006
+      - node2.sddc.info:8006
+      - node3.sddc.info:8006
+      - node4.sddc.info:8006
