@@ -43,8 +43,7 @@ def generate_kubespray_inventory(terraform_output):
         "kube_control_plane": {"hosts": {}},
         "etcd": {"hosts": {}},
         "kube_node": {"hosts": {}},
-        "k8s_cluster": {"children": ["kube_control_plane", "kube_node"]},
-        "calico_rr": {"hosts": {}}
+        "k8s_cluster": {"children": ["kube_control_plane", "kube_node"]}
     }
     
     # Add control plane nodes

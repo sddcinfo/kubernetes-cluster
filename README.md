@@ -1,9 +1,9 @@
 # Kubernetes Cluster Automation
 
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Kubernetes](https://img.shields.io/badge/Kubernetes-1.30.4-326CE5?logo=kubernetes&logoColor=white)](https://kubernetes.io/)
-[![Kubespray](https://img.shields.io/badge/Kubespray-2.26.0-FF6B35)](https://kubespray.io/)
-[![Proxmox](https://img.shields.io/badge/Proxmox_VE-8.0+-E57000?logo=proxmox&logoColor=white)](https://www.proxmox.com/)
+[![Kubernetes](https://img.shields.io/badge/Kubernetes-1.33+-326CE5?logo=kubernetes&logoColor=white)](https://kubernetes.io/)
+[![Kubespray](https://img.shields.io/badge/Kubespray-Latest-FF6B35)](https://kubespray.io/)
+[![Proxmox](https://img.shields.io/badge/Proxmox_VE-9.0+-E57000?logo=proxmox&logoColor=white)](https://www.proxmox.com/)
 
 Production-grade automation framework for deploying highly available Kubernetes clusters on Proxmox VE infrastructure using industry-standard tooling and best practices.
 
@@ -25,7 +25,7 @@ Production-grade automation framework for deploying highly available Kubernetes 
 
 This solution provides comprehensive automation for deploying and managing production-ready Kubernetes clusters on Proxmox VE environments. Built using a proven technology stack of OpenTofu, Kubespray, and Python, it eliminates manual configuration steps while ensuring consistent, reliable deployments.
 
-**Important**: This solution requires VM templates (IDs 9000 and 9001) to be created first using the [ansible-provisioning-server](https://github.com/sddcinfo/ansible-provisioning-server) repository.
+**Important**: This solution requires a VM template (ID 9000) to be created first using the [ansible-provisioning-server](https://github.com/sddcinfo/ansible-provisioning-server) repository.
 
 ### Key Features
 
@@ -40,9 +40,9 @@ This solution provides comprehensive automation for deploying and managing produ
 
 | Component | Technology | Version | Purpose |
 |-----------|------------|---------|---------|
-| **Infrastructure** | OpenTofu | 1.7+ | Declarative infrastructure provisioning |
-| **Kubernetes** | Kubespray | 2.26.0 | Production-ready cluster deployment |
-| **Container Network** | Calico | 3.26+ | BGP-based CNI with proven reliability |
+| **Infrastructure** | OpenTofu | Latest | Declarative infrastructure provisioning |
+| **Kubernetes** | Kubespray | Latest | Production-ready cluster deployment |
+| **Container Network** | Cilium | Latest | eBPF-based CNI with advanced networking and security |
 | **Storage** | Proxmox CSI | Latest | Dynamic persistent volume provisioning |
 | **Load Balancing** | MetalLB | Latest | Bare-metal LoadBalancer implementation |
 | **Orchestration** | Python | 3.11+ | Deployment coordination and automation |
@@ -55,8 +55,8 @@ The solution deploys a production-grade Kubernetes cluster with the following to
 
 - **Control Plane**: 3 nodes with stacked etcd for high availability
 - **Worker Nodes**: 4+ nodes with configurable scaling
-- **Load Balancer**: HAProxy + Keepalived for control plane access
-- **Network**: Calico CNI with BGP routing
+- **Load Balancer**: HAProxy for control plane access
+- **Network**: Cilium CNI with eBPF dataplane and optional BGP
 - **Storage**: Proxmox CSI with Ceph RBD integration
 
 ### Network Topology
@@ -69,8 +69,9 @@ Infrastructure Services     (10.10.1.1-29)
 └── 10.10.1.21-24           node1-4 (Proxmox hypervisors)
 
 Kubernetes Cluster         (10.10.1.30-99)
-├── Control Plane          (10.10.1.30-39)
-│   ├── 10.10.1.30          k8s-vip (Virtual IP)
+├── Load Balancer          (10.10.1.30)
+│   └── 10.10.1.30          k8s-vip.sddc.info (HAProxy LB for API)
+├── Control Plane          (10.10.1.31-39)
 │   └── 10.10.1.31-33       k8s-control-1 through k8s-control-3
 ├── Worker Nodes           (10.10.1.40-49)
 │   ├── 10.10.1.40-43       k8s-worker-1 through k8s-worker-4
@@ -86,7 +87,7 @@ DHCP Range                 (10.10.1.100-200)
 
 ### Infrastructure Requirements
 
-- **Proxmox VE**: Version 8.0+ cluster with minimum 4 nodes
+- **Proxmox VE**: Version 9.0+ cluster with minimum 4 nodes
 - **Hardware**: 8+ CPU cores, 32GB+ RAM, 500GB+ storage per node
 - **Storage**: Ceph RBD or distributed storage backend
 - **Network**: Bridge interface (vmbr0) for cluster communication
@@ -114,8 +115,7 @@ python3 scripts/template-manager.py --create-templates
 ```
 
 This creates:
-- **Template 9000**: Ubuntu 24.04 base template
-- **Template 9001**: Ubuntu 24.04 with Kubernetes runtime
+- **Template 9000**: Ubuntu 24.04 base template with cloud-init and qemu-guest-agent
 
 ## Quick Start
 
@@ -150,7 +150,7 @@ The system uses a structured IP allocation strategy:
 
 | Range | Purpose | Example |
 |-------|---------|---------|
-| 10.10.1.30 | Control Plane VIP | k8s-vip.sddc.info |
+| 10.10.1.30 | HAProxy Load Balancer | k8s-vip.sddc.info |
 | 10.10.1.31-33 | Control Plane Nodes | k8s-control-1.sddc.info |
 | 10.10.1.40-49 | Worker Nodes | k8s-worker-1.sddc.info |
 | 10.10.1.50-79 | MetalLB LoadBalancer Pool | ingress.k8s.sddc.info |
@@ -191,6 +191,9 @@ python3 scripts/deploy-fresh-cluster.py --skip-terraform-reset
 
 # Force complete rebuild
 python3 scripts/deploy-fresh-cluster.py --force-recreate
+
+# Fast mode for re-runs (5-15 minutes instead of 15-30 minutes)
+python3 scripts/deploy-fresh-cluster.py --kubernetes-only --fast
 ```
 
 ## Configuration
@@ -219,14 +222,101 @@ This creates optimized inventory configuration with:
 - Performance optimizations
 - Security hardening
 
+## High Availability Optimization
+
+### HA Mode Selection
+
+The deployment script supports **3 optimized HA modes** for different use cases:
+
+```bash
+# Localhost HA (default, recommended) - built-in nginx on worker nodes
+python3 scripts/deploy-fresh-cluster.py --ha-mode localhost
+
+# Kube-VIP HA - modern cloud-native VIP with leader election  
+python3 scripts/deploy-fresh-cluster.py --ha-mode kube-vip
+
+# External HA - legacy HAProxy approach (not recommended)
+python3 scripts/deploy-fresh-cluster.py --ha-mode external
+```
+
+### HA Mode Comparison
+
+| Mode | Performance | Complexity | Certificate Issues | Infrastructure |
+|------|-------------|------------|-------------------|----------------|
+| **localhost** | High | Simple | None | Built-in |
+| **kube-vip** | Highest | Moderate | None | Cloud-native |
+| **external** | Low | Complex | SAN issues | Extra VM |
+
+**Recommended Approach:**
+- **Default**: Use `localhost` mode (built-in nginx proxy)
+- **Advanced**: Use `kube-vip` mode for true VIP with leader election
+- **Legacy**: Avoid `external` mode unless required for specific setups
+
+### Localhost HA (Recommended)
+- **Zero configuration** - works out of the box
+- **High performance** - nginx proxy on each worker node  
+- **No certificate issues** - properly integrated
+- **Fault tolerant** - if one worker fails, others provide access
+- **Zero infrastructure overhead** - no additional VMs needed
+
+### Kube-VIP HA (Advanced)
+- **True VIP** - single IP address (10.10.1.30)
+- **Leader election** - automatic failover between control nodes
+- **IPVS performance** - high-performance load balancing
+- **Certificate compatible** - VIP included in certificate SAN
+- **Network configuration** - requires careful interface setup
+
+## Performance Optimization
+
+### Fast Mode for Re-deployments
+
+The deployment script includes a **fast mode** specifically optimized for re-running Kubespray on existing clusters:
+
+```bash
+# Fast re-deployment (5-15 minutes vs 15-30 minutes)
+python3 scripts/deploy-fresh-cluster.py --kubernetes-only --fast
+```
+
+**Fast Mode Optimizations:**
+
+- **Skip Downloads**: Uses cached container images and binaries
+- **Skip OS Bootstrap**: Skips system package updates and OS configuration  
+- **Optimized Tags**: Uses selective Ansible tags (`k8s-cluster,network,master,node,addons`)
+- **Skip Initialization**: Skips `download`, `bootstrap-os`, and `preinstall` tags
+- **Enhanced Ansible Config**: 
+  - SSH connection multiplexing with ControlMaster
+  - Increased parallelism (20 forks)
+  - Smart fact gathering with memory caching
+  - Performance profiling enabled
+
+**When to Use Fast Mode:**
+- Re-running deployment on existing infrastructure
+- Applying configuration changes to running cluster
+- Testing deployment modifications quickly
+- First-time deployments (use standard mode)
+- Major version upgrades (use standard mode)
+
+**Performance Comparison:**
+- **Standard Mode**: 15-30 minutes (full deployment)
+- **Fast Mode**: 5-15 minutes (optimized re-run)
+- **Time Savings**: 50-70% reduction in deployment time
+
 ## Operations
+
+## Cluster Status and Access
 
 ### Cluster Access
 
 ```bash
-# Configure kubectl access
-export KUBECONFIG=~/.kube/config-k8s-cluster
+# Direct connection to control plane
+export KUBECONFIG=~/.kube/config-direct
 kubectl get nodes
+
+# Direct connection works without certificate issues
+kubectl get nodes
+
+# Cluster information
+kubectl cluster-info
 ```
 
 ### Management Interfaces
@@ -247,6 +337,12 @@ kubectl port-forward -n monitoring svc/prometheus-grafana 3000:80
 ```bash
 kubectl port-forward -n monitoring svc/prometheus-kube-prometheus-prometheus 9090:9090
 # Access: http://localhost:9090
+```
+
+**Cilium Hubble UI**
+```bash
+kubectl port-forward -n kube-system svc/hubble-ui 12000:80
+# Access: http://localhost:12000
 ```
 
 ### Scaling Operations
