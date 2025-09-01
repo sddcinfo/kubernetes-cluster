@@ -1,0 +1,70 @@
+---
+# MetalLB Load Balancer for bare-metal LoadBalancer services
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: metallb-system
+---
+# MetalLB Controller via ArgoCD
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: metallb
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://metallb.github.io/metallb
+    targetRevision: 0.14.8
+    chart: metallb
+    helm:
+      values: |
+        # Controller configuration
+        controller:
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+        
+        # Speaker configuration (for L2 mode)
+        speaker:
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: metallb-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true
+---
+# MetalLB IP Address Pool
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: apps-pool
+  namespace: metallb-system
+spec:
+  addresses:
+  - 10.10.1.50-10.10.1.79
+---
+# L2Advertisement for the IP pool
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: apps-l2-advertisement
+  namespace: metallb-system
+spec:
+  ipAddressPools:
+  - apps-pool

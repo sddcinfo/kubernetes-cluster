@@ -30,11 +30,12 @@ This solution provides comprehensive automation for deploying and managing produ
 ### Key Features
 
 - **Zero-Touch Deployment**: Fully automated cluster provisioning from infrastructure to platform services
+- **Complete Applications Platform**: Automated ingress, monitoring, and storage with single-command deployment
 - **High Availability**: Multi-master control plane with integrated load balancing
 - **Production Hardening**: Security best practices and enterprise-grade configurations
 - **Scalable Architecture**: Easy horizontal scaling with automated node management
 - **Infrastructure as Code**: Version-controlled, repeatable deployments with state management
-- **Comprehensive Monitoring**: Integrated observability stack with Prometheus and Grafana
+- **Ingress-Based Access**: User-friendly URLs for all platform services via `*.apps.sddc.info`
 
 ### Technology Stack
 
@@ -45,6 +46,9 @@ This solution provides comprehensive automation for deploying and managing produ
 | **Container Network** | Cilium | Latest | eBPF-based CNI with advanced networking and security |
 | **Storage** | Proxmox CSI | Latest | Dynamic persistent volume provisioning |
 | **Load Balancing** | MetalLB | Latest | Bare-metal LoadBalancer implementation |
+| **Ingress Controller** | NGINX Ingress | Latest | HTTP/HTTPS routing and SSL termination |
+| **GitOps Platform** | ArgoCD | Latest | Application lifecycle management and deployment |
+| **Monitoring** | Prometheus + Grafana | Latest | Observability and metrics visualization |
 | **Orchestration** | Python | 3.11+ | Deployment coordination and automation |
 
 ## Architecture
@@ -303,25 +307,34 @@ python3 scripts/deploy-fresh-cluster.py --kubernetes-only --fast
 
 ## Applications Deployment
 
-### Monitoring and Observability Stack
+### Complete Applications Stack
 
-Deploy comprehensive monitoring with Prometheus, Grafana, and persistent storage:
+Deploy the full applications platform including ingress, monitoring, and storage integration:
 
 ```bash
-# Deploy complete applications stack (storage + monitoring)
+# Deploy complete applications stack (ingress + storage + monitoring)
 python3 scripts/deploy-applications.py
 
 # Deploy only storage integration
 python3 scripts/deploy-applications.py --storage-only
 
-# Deploy only monitoring stack
+# Deploy only monitoring stack  
 python3 scripts/deploy-applications.py --monitoring-only
 
 # Verify existing deployments
 python3 scripts/deploy-applications.py --verify-only
+
+# Skip prerequisites check for faster re-runs
+python3 scripts/deploy-applications.py --skip-prerequisites
 ```
 
 ### Applications Architecture
+
+**Ingress Infrastructure (Deployed Automatically):**
+- **MetalLB LoadBalancer** - Bare-metal load balancing with IP pool `10.10.1.50-10.10.1.79`
+- **NGINX Ingress Controller** - HTTP/HTTPS routing at `10.10.1.60`
+- **DNS Wildcard** - All `*.apps.sddc.info` routes to ingress controller
+- **ArgoCD HTTP Configuration** - Insecure mode for HTTP ingress access
 
 **Storage Integration:**
 - **Proxmox CSI Plugin** - Dynamic persistent volume provisioning
@@ -330,32 +343,48 @@ python3 scripts/deploy-applications.py --verify-only
 
 **Monitoring Stack:**
 - **Prometheus** - Metrics collection and storage (100Gi persistent storage)
-- **Grafana** - Visualization dashboards with LoadBalancer (10.10.1.50)
+- **Grafana** - Visualization dashboards accessible via ingress
 - **AlertManager** - Alert processing and notifications
 - **Proxmox Exporter** - Infrastructure metrics collection
 
 **Key Features:**
+- **Zero-Touch Deployment** - Complete automation including DNS configuration
+- **Ingress-Based Access** - All services accessible via user-friendly URLs
 - **Persistent Storage** - All monitoring components use Proxmox Ceph RBD
 - **High Availability** - Prometheus and AlertManager with 2 replicas
-- **LoadBalancer Integration** - Grafana accessible via MetalLB (10.10.1.50)
 - **Custom Dashboards** - Kubernetes cluster, Proxmox infrastructure, and Ceph storage
 - **Automated Discovery** - ServiceMonitor integration for metrics collection
 
-### Applications Access
+### Applications Access via Ingress
 
-**Grafana Dashboard:**
-- URL: http://10.10.1.50/ (LoadBalancer IP)
-- Username: `admin`
-- Password: `kubernetes-admin-2024`
+**Primary Application URLs** (via `*.apps.sddc.info`):
+- **ArgoCD GitOps**: http://argocd.apps.sddc.info/
+- **Grafana Monitoring**: http://grafana.apps.sddc.info/
+- **Prometheus Metrics**: http://prometheus.apps.sddc.info/
 
-**Prometheus Metrics:**
+**Default Credentials:**
+- **Grafana**: Username `admin` / Password `kubernetes-admin-2024`
+- **ArgoCD**: Username `admin` / Password from secret:
+  ```bash
+  kubectl -n argocd get secret argocd-initial-admin-secret \
+    -o jsonpath="{.data.password}" | base64 -d
+  ```
+
+**Alternative Access (Port Forward):**
 ```bash
+# ArgoCD (if ingress pending)
+kubectl port-forward -n argocd svc/argocd-server 8080:80
+# Access: http://localhost:8080
+
+# Grafana (if ingress pending)
+kubectl port-forward -n monitoring svc/kube-prometheus-stack-grafana 3000:80
+# Access: http://localhost:3000
+
+# Prometheus
 kubectl port-forward -n monitoring svc/kube-prometheus-stack-prometheus 9090:9090
 # Access: http://localhost:9090
-```
 
-**AlertManager:**
-```bash  
+# AlertManager
 kubectl port-forward -n monitoring svc/kube-prometheus-stack-alertmanager 9093:9093
 # Access: http://localhost:9093
 ```
@@ -406,9 +435,14 @@ kubectl cluster-info
 ### Management Interfaces
 
 **Grafana Monitoring Dashboard** (Primary)
-- Direct LoadBalancer Access: http://10.10.1.50/
+- Ingress Access: http://grafana.apps.sddc.info/ (recommended)
 - Username: `admin` / Password: `kubernetes-admin-2024`
 - Features: Kubernetes cluster metrics, Proxmox infrastructure, Ceph storage
+
+**ArgoCD GitOps Platform**
+- Ingress Access: http://argocd.apps.sddc.info/
+- Username: `admin` / Password: Get from secret (see command above)
+- Features: Application lifecycle management, GitOps workflows
 
 **Prometheus Metrics**
 ```bash

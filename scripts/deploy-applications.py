@@ -27,6 +27,9 @@ class ApplicationsDeployer:
         self.skip_prerequisites = skip_prerequisites
         self.verbose = verbose
         
+        # DNS configuration script path
+        self.dns_config_script = self.project_dir / "scripts" / "deploy-dns-config.py"
+        
         # Timing tracking
         self.start_time = None
         self.phase_times = {}
@@ -40,6 +43,13 @@ class ApplicationsDeployer:
             "monitoring/kube-prometheus-stack.yml",
             "monitoring/proxmox-exporter.yml", 
             "monitoring/grafana-dashboards.yml"
+        ]
+        
+        self.ingress_components = [
+            "ingress/complete-ingress-stack.yml",
+            "ingress/metallb-ip-pool.yml",
+            "config/argocd-insecure-config.yml",
+            "ingress/application-ingresses.yml"
         ]
 
     def log(self, message, level="INFO"):
@@ -208,6 +218,114 @@ class ApplicationsDeployer:
         finally:
             self.end_phase_timer("Storage Integration")
 
+    def deploy_ingress_stack(self):
+        """Deploy complete ingress infrastructure (MetalLB + NGINX)"""
+        self.start_phase_timer("Ingress Infrastructure")
+        
+        try:
+            self.log("Deploying ingress infrastructure...")
+            
+            # Deploy MetalLB and NGINX Ingress via ArgoCD
+            ingress_stack_path = self.applications_dir / "ingress" / "complete-ingress-stack.yml"
+            if ingress_stack_path.exists():
+                self.log("Deploying MetalLB and NGINX Ingress Controller...")
+                self.run_command(f"kubectl apply -f {ingress_stack_path}",
+                               "Deploy ingress stack")
+                
+                # Wait for MetalLB to be ready
+                self.log("Waiting for MetalLB controller...")
+                self.run_command("kubectl wait --for=condition=available --timeout=300s deployment/metallb-controller -n metallb-system || true",
+                               "Wait for MetalLB controller")
+                
+                # Wait for NGINX Ingress to be ready
+                self.log("Waiting for NGINX Ingress Controller...")
+                self.run_command("kubectl wait --for=condition=available --timeout=300s deployment/nginx-ingress-controller-ingress-nginx-controller -n ingress-nginx || true",
+                               "Wait for NGINX Ingress")
+                
+                # Wait for MetalLB CRDs to be established before applying IP pool
+                self.log("Waiting for MetalLB CRDs to be ready...")
+                self.run_command("kubectl wait --for=condition=established --timeout=120s crd/ipaddresspools.metallb.io || true",
+                               "Wait for MetalLB CRDs")
+                
+                # Apply MetalLB IP pool configuration
+                ip_pool_path = self.applications_dir / "ingress" / "metallb-ip-pool.yml"
+                if ip_pool_path.exists():
+                    self.log("Configuring MetalLB IP address pool...")
+                    time.sleep(10)  # Additional wait for CRDs
+                    self.run_command(f"kubectl apply -f {ip_pool_path}",
+                                   "Configure MetalLB IP pool")
+                
+                # Update DNS configuration for ingress wildcard
+                self.log("Updating DNS configuration for ingress...")
+                self.deploy_dns_configuration()
+                
+        except Exception as e:
+            self.log(f"Ingress stack deployment failed: {str(e)}", "ERROR")
+            raise
+        finally:
+            self.end_phase_timer("Ingress Infrastructure")
+    
+    def configure_argocd_insecure(self):
+        """Configure ArgoCD for HTTP ingress access"""
+        self.log("Configuring ArgoCD for HTTP ingress...")
+        
+        try:
+            # Apply ArgoCD insecure configuration
+            argocd_config_path = self.applications_dir / "config" / "argocd-insecure-config.yml"
+            if argocd_config_path.exists():
+                self.run_command(f"kubectl apply -f {argocd_config_path}",
+                               "Configure ArgoCD insecure mode")
+                
+                # Restart ArgoCD server to pick up new configuration
+                self.log("Restarting ArgoCD server for configuration changes...")
+                self.run_command("kubectl rollout restart deployment/argocd-server -n argocd",
+                               "Restart ArgoCD server")
+                
+                # Wait for ArgoCD server to be ready
+                self.run_command("kubectl wait --for=condition=available --timeout=300s deployment/argocd-server -n argocd",
+                               "Wait for ArgoCD server restart")
+                
+        except Exception as e:
+            self.log(f"ArgoCD configuration failed: {str(e)}", "WARNING")
+    
+    def deploy_application_ingresses(self):
+        """Deploy ingress resources for applications"""
+        self.log("Deploying application ingress resources...")
+        
+        try:
+            ingress_path = self.applications_dir / "ingress" / "application-ingresses.yml"
+            if ingress_path.exists():
+                self.run_command(f"kubectl apply -f {ingress_path}",
+                               "Deploy application ingresses")
+                
+                # Verify ingress resources are created
+                self.log("Verifying ingress resources...")
+                result = self.run_command("kubectl get ingress --all-namespaces --no-headers | wc -l",
+                                         "Count ingress resources")
+                ingress_count = int(result.stdout.strip())
+                if ingress_count > 0:
+                    self.log(f"Created {ingress_count} ingress resources", "SUCCESS")
+                else:
+                    self.log("No ingress resources found", "WARNING")
+                    
+        except Exception as e:
+            self.log(f"Application ingress deployment failed: {str(e)}", "WARNING")
+    
+    def deploy_dns_configuration(self):
+        """Deploy DNS configuration for ingress wildcards"""
+        self.log("Deploying DNS configuration...")
+        
+        try:
+            if self.dns_config_script.exists():
+                self.run_command(f"python3 {self.dns_config_script}",
+                               "Update DNS configuration")
+                self.log("DNS configuration updated successfully", "SUCCESS")
+            else:
+                self.log(f"DNS configuration script not found: {self.dns_config_script}", "WARNING")
+                
+        except Exception as e:
+            self.log(f"DNS configuration failed: {str(e)}", "WARNING")
+
     def deploy_monitoring_stack(self):
         """Deploy comprehensive monitoring with Prometheus and Grafana"""
         self.start_phase_timer("Monitoring Stack")
@@ -256,6 +374,42 @@ class ApplicationsDeployer:
         try:
             self.log("Verifying application deployments...")
             
+            # Check ingress infrastructure
+            self.log("Checking ingress infrastructure...")
+            
+            # Check MetalLB
+            result = self.run_command("kubectl get deployment -n metallb-system metallb-controller --no-headers 2>/dev/null | wc -l",
+                                     "Check MetalLB controller")
+            if int(result.stdout.strip()) > 0:
+                self.log("✓ MetalLB controller is deployed", "SUCCESS")
+            else:
+                self.log("✗ MetalLB controller not found", "ERROR")
+            
+            # Check NGINX Ingress
+            result = self.run_command("kubectl get deployment -n ingress-nginx -l app.kubernetes.io/name=ingress-nginx --no-headers | wc -l",
+                                     "Check NGINX Ingress")
+            if int(result.stdout.strip()) > 0:
+                self.log("✓ NGINX Ingress Controller is deployed", "SUCCESS")
+                
+                # Get ingress LoadBalancer IP
+                result = self.run_command("kubectl get svc -n ingress-nginx -o jsonpath='{.items[0].status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo 'pending'",
+                                         "Get NGINX Ingress LoadBalancer IP")
+                if result.stdout.strip() != "pending":
+                    self.log(f"✓ NGINX Ingress available at: {result.stdout.strip()}", "SUCCESS")
+                else:
+                    self.log("NGINX Ingress LoadBalancer IP pending...", "WARNING")
+            else:
+                self.log("✗ NGINX Ingress Controller not found", "ERROR")
+            
+            # Check ingress resources
+            result = self.run_command("kubectl get ingress --all-namespaces --no-headers | wc -l",
+                                     "Count ingress resources")
+            ingress_count = int(result.stdout.strip())
+            if ingress_count > 0:
+                self.log(f"✓ {ingress_count} ingress resources configured", "SUCCESS")
+            else:
+                self.log("No ingress resources found", "WARNING")
+            
             # Check storage integration
             if not self.monitoring_only:
                 self.log("Checking storage integration...")
@@ -283,14 +437,6 @@ class ApplicationsDeployer:
                                          "Check Grafana deployment")
                 if int(result.stdout.strip()) > 0:
                     self.log("✓ Grafana is deployed", "SUCCESS")
-                    
-                    # Get Grafana LoadBalancer IP
-                    result = self.run_command("kubectl get svc -n monitoring kube-prometheus-stack-grafana -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo 'pending'",
-                                             "Get Grafana LoadBalancer IP")
-                    if result.stdout.strip() != "pending":
-                        self.log(f"✓ Grafana available at: http://{result.stdout.strip()}/", "SUCCESS")
-                    else:
-                        self.log("Grafana LoadBalancer IP pending...", "WARNING")
                 else:
                     self.log("✗ Grafana not found", "ERROR")
                 
@@ -299,6 +445,14 @@ class ApplicationsDeployer:
                                          "Check AlertManager")
                 if int(result.stdout.strip()) > 0:
                     self.log("✓ AlertManager is deployed", "SUCCESS")
+                
+            # Check ArgoCD ingress configuration
+            result = self.run_command("kubectl get configmap argocd-cmd-params-cm -n argocd -o jsonpath='{.data.server\.insecure}' 2>/dev/null || echo 'not-found'",
+                                     "Check ArgoCD insecure config")
+            if result.stdout.strip() == "true":
+                self.log("✓ ArgoCD configured for HTTP ingress", "SUCCESS")
+            else:
+                self.log("ArgoCD HTTP ingress configuration not found", "WARNING")
                 
             # Overall health check
             self.log("Checking overall application health...")
@@ -321,39 +475,44 @@ class ApplicationsDeployer:
         self.log("Deployment Access Information", "PHASE")
         
         try:
-            # Grafana access
-            result = self.run_command("kubectl get svc -n monitoring kube-prometheus-stack-grafana -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo 'pending'",
-                                     "Get Grafana IP")
-            grafana_ip = result.stdout.strip()
+            # Get ingress IP for applications
+            result = self.run_command("kubectl get svc -n ingress-nginx -o jsonpath='{.items[0].status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo 'pending'",
+                                     "Get NGINX Ingress IP")
+            ingress_ip = result.stdout.strip()
             
-            if grafana_ip != "pending":
+            if ingress_ip != "pending":
                 print(f"""
-┌─ Monitoring Stack Access ─────────────────────────────────────────┐
+┌─ Applications Access via Ingress ─────────────────────────────────┐
 │                                                                    │
-│  🎯 Grafana Dashboard:                                            │
-│     URL: http://{grafana_ip}/                                      │
-│     Username: admin                                                │
-│     Password: kubernetes-admin-2024                                │
+│  Ingress Controller IP: {ingress_ip}                              │
 │                                                                    │
-│  📊 Prometheus:                                                   │
-│     Access via port-forward: kubectl port-forward -n monitoring   │
-│     svc/kube-prometheus-stack-prometheus 9090:9090                 │
+│  Application URLs (via *.apps.sddc.info):                        │
+│  • ArgoCD:   http://argocd.apps.sddc.info/                       │
+│  • Grafana:  http://grafana.apps.sddc.info/                      │
+│  • Prometheus: http://prometheus.apps.sddc.info/                 │
 │                                                                    │
-│  🚨 AlertManager:                                                 │
-│     Access via LoadBalancer or port-forward                       │
+│  ArgoCD Admin Password:                                           │
+│  kubectl -n argocd get secret argocd-initial-admin-secret \      │
+│    -o jsonpath="{{.data.password}}" | base64 -d                    │
+│                                                                    │
+│  Grafana Login: admin / kubernetes-admin-2024                    │
 │                                                                    │
 └────────────────────────────────────────────────────────────────────┘
 """)
             else:
                 print(f"""
-┌─ Monitoring Stack Information ────────────────────────────────────┐
+┌─ Applications Access Information ─────────────────────────────────┐
 │                                                                    │
-│  ⏳ Grafana LoadBalancer IP is still pending                      │
-│  Use port-forward for immediate access:                           │
+│  Ingress LoadBalancer IP is still pending                        │
+│  Use port-forward for immediate access:                          │
+│                                                                    │
+│  ArgoCD:                                                          │
+│  kubectl port-forward -n argocd svc/argocd-server 8080:80        │
+│  Then access: http://localhost:8080                              │
+│                                                                    │
+│  Grafana:                                                         │
 │  kubectl port-forward -n monitoring svc/kube-prometheus-stack-grafana 3000:80 │
-│  Then access: http://localhost:3000                               │
-│  Username: admin                                                   │
-│  Password: kubernetes-admin-2024                                   │
+│  Then access: http://localhost:3000                              │
 │                                                                    │
 └────────────────────────────────────────────────────────────────────┘
 """)
@@ -366,11 +525,11 @@ class ApplicationsDeployer:
                 print(f"""
 ┌─ Storage Integration ──────────────────────────────────────────────┐
 │                                                                    │
-│  💾 Available Storage Classes: {sc_count}                                     │
+│  Available Storage Classes: {sc_count}                            │
 │     • proxmox-rbd (default)                                       │ 
 │     • proxmox-rbd-fast                                            │
 │                                                                    │
-│  📋 Test persistent storage:                                      │
+│  Test persistent storage:                                         │
 │     kubectl apply -f - <<EOF                                      │
 │     apiVersion: v1                                                │
 │     kind: PersistentVolumeClaim                                   │
@@ -420,6 +579,12 @@ class ApplicationsDeployer:
             if not self.skip_prerequisites:
                 self.check_prerequisites()
             
+            # Deploy ingress infrastructure first (required for application access)
+            self.deploy_ingress_stack()
+            
+            # Configure ArgoCD for HTTP ingress
+            self.configure_argocd_insecure()
+            
             # Storage deployment
             if not self.monitoring_only:
                 self.deploy_storage_integration()
@@ -427,6 +592,9 @@ class ApplicationsDeployer:
             # Monitoring deployment  
             if not self.storage_only:
                 self.deploy_monitoring_stack()
+                
+            # Deploy application ingresses
+            self.deploy_application_ingresses()
             
             # Verification
             if not self.verify_only:

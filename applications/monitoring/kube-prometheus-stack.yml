@@ -42,7 +42,7 @@ spec:
             storageSpec:
               volumeClaimTemplate:
                 spec:
-                  storageClassName: proxmox-rbd
+                  storageClassName: local-storage
                   accessModes: ["ReadWriteOnce"]
                   resources:
                     requests:
@@ -108,7 +108,7 @@ spec:
           # Persistent storage
           persistence:
             enabled: true
-            storageClassName: proxmox-rbd
+            storageClassName: local-storage
             size: 20Gi
             accessModes:
             - ReadWriteOnce
@@ -135,9 +135,6 @@ spec:
             server:
               domain: grafana.k8s.sddc.info
               root_url: http://grafana.k8s.sddc.info/
-            security:
-              admin_user: admin
-              admin_password: kubernetes-admin-2024
             users:
               allow_sign_up: false
               auto_assign_org: true
@@ -195,7 +192,7 @@ spec:
             storage:
               volumeClaimTemplate:
                 spec:
-                  storageClassName: proxmox-rbd
+                  storageClassName: local-storage
                   accessModes: ["ReadWriteOnce"]
                   resources:
                     requests:

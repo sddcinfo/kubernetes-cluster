@@ -1,0 +1,273 @@
+---
+# Direct CSI Driver deployment without Helm chart
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: csi-proxmox
+---
+# CSI Driver definition
+apiVersion: storage.k8s.io/v1
+kind: CSIDriver
+metadata:
+  name: csi.proxmox.sinextra.dev
+spec:
+  attachRequired: true
+  podInfoOnMount: true
+  volumeLifecycleModes:
+  - Persistent
+---
+# ServiceAccount for CSI controller
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: proxmox-csi-controller
+  namespace: csi-proxmox
+---
+# ServiceAccount for CSI node
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: proxmox-csi-node
+  namespace: csi-proxmox
+---
+# ClusterRole for CSI controller
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: proxmox-csi-controller
+rules:
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["get", "list"]
+- apiGroups: [""]
+  resources: ["persistentvolumes"]
+  verbs: ["get", "list", "watch", "create", "delete", "patch"]
+- apiGroups: [""]
+  resources: ["persistentvolumeclaims"]
+  verbs: ["get", "list", "watch", "update"]
+- apiGroups: ["storage.k8s.io"]
+  resources: ["storageclasses"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["events"]
+  verbs: ["list", "watch", "create", "update", "patch"]
+- apiGroups: ["snapshot.storage.k8s.io"]
+  resources: ["volumesnapshots"]
+  verbs: ["get", "list"]
+- apiGroups: ["snapshot.storage.k8s.io"]
+  resources: ["volumesnapshotcontents"]
+  verbs: ["get", "list"]
+- apiGroups: ["storage.k8s.io"]
+  resources: ["csinodes"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["nodes"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["storage.k8s.io"]
+  resources: ["volumeattachments"]
+  verbs: ["get", "list", "watch", "patch"]
+- apiGroups: ["storage.k8s.io"]
+  resources: ["volumeattachments/status"]
+  verbs: ["patch"]
+---
+# ClusterRoleBinding for CSI controller
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: proxmox-csi-controller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: proxmox-csi-controller
+subjects:
+- kind: ServiceAccount
+  name: proxmox-csi-controller
+  namespace: csi-proxmox
+---
+# ClusterRole for CSI node
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: proxmox-csi-node
+rules:
+- apiGroups: [""]
+  resources: ["nodes"]
+  verbs: ["get"]
+---
+# ClusterRoleBinding for CSI node
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: proxmox-csi-node
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: proxmox-csi-node
+subjects:
+- kind: ServiceAccount
+  name: proxmox-csi-node
+  namespace: csi-proxmox
+---
+# Configuration Secret
+apiVersion: v1
+kind: Secret
+metadata:
+  name: proxmox-csi-config
+  namespace: csi-proxmox
+type: Opaque
+stringData:
+  config.yaml: |-
+    clusters:
+    - url: https://10.10.1.21:8006/api2/json
+      insecure: true
+      token_id: "root@pam"
+      token_secret: "proxmox123"
+      region: cluster
+---
+# CSI Controller Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: proxmox-csi-controller
+  namespace: csi-proxmox
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: proxmox-csi-controller
+  template:
+    metadata:
+      labels:
+        app: proxmox-csi-controller
+    spec:
+      serviceAccountName: proxmox-csi-controller
+      containers:
+      - name: csi-provisioner
+        image: registry.k8s.io/sig-storage/csi-provisioner:v4.0.0
+        args:
+        - --csi-address=$(ADDRESS)
+        - --v=2
+        - --feature-gates=Topology=true
+        - --strict-topology
+        env:
+        - name: ADDRESS
+          value: /var/lib/csi/sockets/pluginproxy/csi.sock
+        volumeMounts:
+        - name: socket-dir
+          mountPath: /var/lib/csi/sockets/pluginproxy/
+      - name: csi-attacher
+        image: registry.k8s.io/sig-storage/csi-attacher:v4.5.0
+        args:
+        - --csi-address=$(ADDRESS)
+        - --v=2
+        env:
+        - name: ADDRESS
+          value: /var/lib/csi/sockets/pluginproxy/csi.sock
+        volumeMounts:
+        - name: socket-dir
+          mountPath: /var/lib/csi/sockets/pluginproxy/
+      - name: proxmox-csi-plugin
+        image: ghcr.io/sergelogvinov/proxmox-csi-plugin:v0.2.8
+        args:
+        - --endpoint=$(CSI_ENDPOINT)
+        - --node-id=$(NODE_ID)
+        - --config=/etc/proxmox/config.yaml
+        env:
+        - name: CSI_ENDPOINT
+          value: unix:///var/lib/csi/sockets/pluginproxy/csi.sock
+        - name: NODE_ID
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        volumeMounts:
+        - name: socket-dir
+          mountPath: /var/lib/csi/sockets/pluginproxy/
+        - name: config
+          mountPath: /etc/proxmox
+          readOnly: true
+      volumes:
+      - name: socket-dir
+        emptyDir: {}
+      - name: config
+        secret:
+          secretName: proxmox-csi-config
+---
+# CSI Node DaemonSet
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: proxmox-csi-node
+  namespace: csi-proxmox
+spec:
+  selector:
+    matchLabels:
+      app: proxmox-csi-node
+  template:
+    metadata:
+      labels:
+        app: proxmox-csi-node
+    spec:
+      serviceAccountName: proxmox-csi-node
+      hostNetwork: true
+      containers:
+      - name: csi-node-driver-registrar
+        image: registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.10.0
+        args:
+        - --csi-address=$(ADDRESS)
+        - --kubelet-registration-path=$(DRIVER_REG_SOCK_PATH)
+        - --v=2
+        env:
+        - name: ADDRESS
+          value: /csi/csi.sock
+        - name: DRIVER_REG_SOCK_PATH
+          value: /var/lib/kubelet/plugins/csi.proxmox.sinextra.dev/csi.sock
+        volumeMounts:
+        - name: plugin-dir
+          mountPath: /csi/
+        - name: registration-dir
+          mountPath: /registration/
+      - name: proxmox-csi-plugin
+        image: ghcr.io/sergelogvinov/proxmox-csi-plugin:v0.2.8
+        args:
+        - --endpoint=$(CSI_ENDPOINT)
+        - --node-id=$(NODE_ID)
+        - --config=/etc/proxmox/config.yaml
+        env:
+        - name: CSI_ENDPOINT
+          value: unix:///csi/csi.sock
+        - name: NODE_ID
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        securityContext:
+          privileged: true
+        volumeMounts:
+        - name: plugin-dir
+          mountPath: /csi
+        - name: pods-mount-dir
+          mountPath: /var/lib/kubelet
+          mountPropagation: "Bidirectional"
+        - name: device-dir
+          mountPath: /dev
+        - name: config
+          mountPath: /etc/proxmox
+          readOnly: true
+      volumes:
+      - name: registration-dir
+        hostPath:
+          path: /var/lib/kubelet/plugins_registry/
+          type: DirectoryOrCreate
+      - name: plugin-dir
+        hostPath:
+          path: /var/lib/kubelet/plugins/csi.proxmox.sinextra.dev
+          type: DirectoryOrCreate
+      - name: pods-mount-dir
+        hostPath:
+          path: /var/lib/kubelet
+          type: Directory
+      - name: device-dir
+        hostPath:
+          path: /dev
+      - name: config
+        secret:
+          secretName: proxmox-csi-config
