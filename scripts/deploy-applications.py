@@ -218,11 +218,45 @@ class ApplicationsDeployer:
         finally:
             self.end_phase_timer("Storage Integration")
 
+    def check_ingress_deployed(self):
+        """Check if ingress stack is already deployed and healthy"""
+        try:
+            # Check if MetalLB controller is running
+            result = self.run_command("kubectl get deployment -n metallb-system metallb-controller --no-headers 2>/dev/null | wc -l",
+                                     "Check MetalLB controller", check=False)
+            if result.returncode != 0:
+                return False
+            metallb_deployed = int(result.stdout.strip()) > 0
+            
+            # Check if NGINX Ingress is running
+            result = self.run_command("kubectl get deployment -n ingress-nginx -l app.kubernetes.io/name=ingress-nginx --no-headers 2>/dev/null | wc -l",
+                                     "Check NGINX Ingress", check=False)
+            if result.returncode != 0:
+                return False
+            nginx_deployed = int(result.stdout.strip()) > 0
+            
+            # Check if MetalLB IP pool is configured
+            result = self.run_command("kubectl get ipaddresspool -n metallb-system apps-pool --no-headers 2>/dev/null | wc -l",
+                                     "Check MetalLB IP pool", check=False)
+            if result.returncode != 0:
+                return False
+            ip_pool_configured = int(result.stdout.strip()) > 0
+            
+            return metallb_deployed and nginx_deployed and ip_pool_configured
+            
+        except Exception:
+            return False
+
     def deploy_ingress_stack(self):
         """Deploy complete ingress infrastructure (MetalLB + NGINX)"""
         self.start_phase_timer("Ingress Infrastructure")
         
         try:
+            # Check if ingress stack is already deployed
+            if self.check_ingress_deployed():
+                self.log("Ingress stack already deployed and healthy", "SUCCESS")
+                return
+                
             self.log("Deploying ingress infrastructure...")
             
             # Deploy MetalLB and NGINX Ingress via ArgoCD
@@ -447,7 +481,7 @@ class ApplicationsDeployer:
                     self.log("✓ AlertManager is deployed", "SUCCESS")
                 
             # Check ArgoCD ingress configuration
-            result = self.run_command("kubectl get configmap argocd-cmd-params-cm -n argocd -o jsonpath='{.data.server\.insecure}' 2>/dev/null || echo 'not-found'",
+            result = self.run_command("kubectl get configmap argocd-cmd-params-cm -n argocd -o jsonpath='{.data.server\\.insecure}' 2>/dev/null || echo 'not-found'",
                                      "Check ArgoCD insecure config")
             if result.stdout.strip() == "true":
                 self.log("✓ ArgoCD configured for HTTP ingress", "SUCCESS")
@@ -492,7 +526,7 @@ class ApplicationsDeployer:
 │  • Prometheus: http://prometheus.apps.sddc.info/                 │
 │                                                                    │
 │  ArgoCD Admin Password:                                           │
-│  kubectl -n argocd get secret argocd-initial-admin-secret \      │
+│  kubectl -n argocd get secret argocd-initial-admin-secret \\     │
 │    -o jsonpath="{{.data.password}}" | base64 -d                    │
 │                                                                    │
 │  Grafana Login: admin / kubernetes-admin-2024                    │
