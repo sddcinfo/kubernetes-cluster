@@ -44,9 +44,9 @@ class ApplicationsDeployer:
         
         # Application components
         self.monitoring_components = [
-            "monitoring/kube-prometheus-stack.yml",
-            "monitoring/proxmox-exporter.yml", 
-            "monitoring/grafana-dashboards.yml"
+            "applications/monitoring/kube-prometheus-stack.yml",
+            "applications/monitoring/redfish-exporter.yml",
+            "applications/monitoring/hardware-graphs-dashboard.yml"
         ]
         
         # Standard password for all applications
