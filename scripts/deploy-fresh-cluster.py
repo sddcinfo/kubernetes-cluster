@@ -1840,8 +1840,9 @@ spec:
         if running_vms:
             print(f"\nTesting SSH connectivity to {len(running_vms)} running VMs...")
             
-            # Map VM IDs to IPs and names (dynamic based on HA mode)
+            # Map VM IDs to IPs and names (include all possible VMs)
             vm_info = {
+                130: ("k8s-haproxy-lb", "10.10.1.30"),  # Always include HAProxy VM
                 131: ("k8s-control-1", "10.10.1.31"),
                 132: ("k8s-control-2", "10.10.1.32"), 
                 133: ("k8s-control-3", "10.10.1.33"),
@@ -1851,12 +1852,12 @@ spec:
                 143: ("k8s-worker-4", "10.10.1.43")
             }
             
-            # Add HAProxy VM only for external HA mode
-            if self.ha_mode == "external":
-                vm_info[130] = ("k8s-haproxy-lb", "10.10.1.30")
-            
             ssh_failed = []
             for vm_id in running_vms:
+                if vm_id not in vm_info:
+                    print(f"   Warning: Unknown VM ID {vm_id} found, skipping SSH test")
+                    continue
+                    
                 vm_name, ip = vm_info[vm_id]
                 result = self.run_command(
                     f"timeout 5 ssh -o StrictHostKeyChecking=no -o ConnectTimeout=3 -i /home/sysadmin/.ssh/sysadmin_automation_key sysadmin@{ip} 'echo OK'",
