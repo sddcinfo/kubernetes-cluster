@@ -53,6 +53,10 @@ class ClusterDeployer:
         # Check and install dependencies
         self.check_and_install_dependencies()
         
+        # Check and setup DNS if not in verify-only mode
+        if not verify_only:
+            self.check_and_setup_dns()
+        
     def check_and_install_dependencies(self):
         """Check and install required dependencies automatically"""
         print("Checking dependencies...")
@@ -179,6 +183,85 @@ class ClusterDeployer:
                 sys.exit(1)
         else:
             print("All dependencies available")
+    
+    def check_and_setup_dns(self):
+        """Check if DNS records exist for Kubernetes and deploy if missing"""
+        print("Checking DNS prerequisites...")
+        
+        # Test critical DNS records
+        dns_records = [
+            ("k8s-vip.sddc.info", "10.10.1.30"),
+            ("k8s-control-1.sddc.info", "10.10.1.31"),
+            ("k8s-worker-1.sddc.info", "10.10.1.40")
+        ]
+        
+        dns_missing = False
+        for hostname, expected_ip in dns_records:
+            try:
+                import socket
+                resolved_ip = socket.gethostbyname(hostname)
+                if resolved_ip != expected_ip:
+                    print(f"   DNS record {hostname} resolves to {resolved_ip}, expected {expected_ip}")
+                    dns_missing = True
+            except socket.gaierror:
+                print(f"   DNS record {hostname} not found")
+                dns_missing = True
+        
+        if dns_missing:
+            print("DNS records missing or incorrect - deploying DNS configuration...")
+            
+            # Check if deploy-dns-config.py exists
+            dns_script = self.project_dir / "scripts" / "deploy-dns-config.py"
+            if not dns_script.exists():
+                print("Warning: deploy-dns-config.py not found - DNS setup may be incomplete")
+                print("Please ensure DNS records are properly configured before continuing")
+                return False
+                
+            # Run the DNS deployment script
+            try:
+                result = subprocess.run(
+                    [str(dns_script)],
+                    capture_output=True,
+                    text=True,
+                    timeout=30
+                )
+                
+                if result.returncode == 0:
+                    print("DNS configuration deployed successfully")
+                    # Test again to confirm
+                    time.sleep(2)
+                    test_passed = True
+                    for hostname, expected_ip in dns_records[:1]:  # Test just the VIP
+                        try:
+                            resolved_ip = socket.gethostbyname(hostname)
+                            if resolved_ip == expected_ip:
+                                print(f"   DNS verification: {hostname} -> {resolved_ip} [OK]")
+                            else:
+                                print(f"   DNS verification failed: {hostname} -> {resolved_ip}")
+                                test_passed = False
+                        except socket.gaierror:
+                            print(f"   DNS verification failed: {hostname} still not resolving")
+                            test_passed = False
+                    
+                    if not test_passed:
+                        print("Warning: DNS configuration deployed but verification failed")
+                        print("DNS may take a moment to propagate. Continuing...")
+                    
+                    return True
+                else:
+                    print(f"DNS configuration deployment failed: {result.stderr}")
+                    print("Warning: Continuing without proper DNS configuration")
+                    return False
+                    
+            except subprocess.TimeoutExpired:
+                print("DNS configuration deployment timed out")
+                return False
+            except Exception as e:
+                print(f"Error deploying DNS configuration: {e}")
+                return False
+        else:
+            print("DNS records verified - all required entries present")
+            return True
 
     def run_command(self, command, description, cwd=None, check=True, timeout=None, log_file=None):
         """Run a command with proper error handling and optional logging"""
