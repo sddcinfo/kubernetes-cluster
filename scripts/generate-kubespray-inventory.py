@@ -3,6 +3,7 @@
 Generate Kubespray inventory from Terraform output for Proxmox Kubernetes cluster.
 """
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -12,8 +13,19 @@ def get_terraform_output():
     """Get Terraform output JSON"""
     try:
         terraform_dir = Path(__file__).parent.parent / "terraform"
+        
+        # Determine which terraform command to use
+        terraform_cmd = "terraform"
+        if shutil.which("tofu"):
+            terraform_cmd = "tofu"
+        elif shutil.which("terraform"):
+            terraform_cmd = "terraform"
+        else:
+            print("Error: Neither terraform nor tofu command found")
+            sys.exit(1)
+            
         result = subprocess.run(
-            ["terraform", "output", "-json"],
+            [terraform_cmd, "output", "-json"],
             cwd=terraform_dir,
             capture_output=True,
             text=True,
