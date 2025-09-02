@@ -111,22 +111,41 @@ class ClusterDeployer:
         
         # Check other dependencies
         required_commands = ["ansible", "kubectl", "python3"]
+        required_packages = ["python3-venv", "python3-pip"]  # Additional packages needed
         missing = []
+        missing_packages = []
+        
         for cmd in required_commands:
             if shutil.which(cmd) is None:
                 missing.append(cmd)
         
-        if missing:
-            print(f"Missing required dependencies: {', '.join(missing)}")
+        # Check for required packages (these don't have commands to check)
+        try:
+            import venv
+        except ImportError:
+            missing_packages.append("python3-venv")
+            
+        try:
+            import pip
+        except ImportError:
+            missing_packages.append("python3-pip")
+        
+        if missing or missing_packages:
+            all_missing = missing + missing_packages
+            print(f"Missing required dependencies: {', '.join(all_missing)}")
             print("Installing missing dependencies...")
             try:
                 install_cmd = ["sudo", "apt", "update"]
                 subprocess.run(install_cmd, check=True, capture_output=True)
                 
-                install_cmd = ["sudo", "apt", "install", "-y"] + missing
+                # Install packages first
+                if missing_packages:
+                    install_cmd = ["sudo", "apt", "install", "-y"] + missing_packages
+                    subprocess.run(install_cmd, check=True, capture_output=True)
+                
+                # Handle special commands
+                install_cmd = ["sudo", "apt", "install", "-y"] + [cmd for cmd in missing if cmd != "kubectl"]
                 if "kubectl" in missing:
-                    # kubectl needs special handling
-                    install_cmd.remove("kubectl")
                     # Install kubectl separately
                     kubectl_install = """
                     curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
