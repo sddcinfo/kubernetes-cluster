@@ -50,6 +50,101 @@ class ClusterDeployer:
         self.phase_times = {}
         self.current_phase_start = None
         
+        # Check and install dependencies
+        self.check_and_install_dependencies()
+        
+    def check_and_install_dependencies(self):
+        """Check and install required dependencies automatically"""
+        print("Checking dependencies...")
+        
+        # Check for terraform/tofu
+        terraform_available = shutil.which("terraform") is not None
+        tofu_available = shutil.which("tofu") is not None
+        
+        if not terraform_available and not tofu_available:
+            print("Neither terraform nor tofu found. Installing OpenTofu...")
+            try:
+                # Install OpenTofu using direct download method (more reliable)
+                print("Downloading OpenTofu...")
+                install_script = """
+                cd /tmp
+                TOFU_VERSION=$(curl -s https://api.github.com/repos/opentofu/opentofu/releases/latest | grep '"tag_name":' | cut -d'"' -f4 | sed 's/v//')
+                if [ -z "$TOFU_VERSION" ]; then
+                    TOFU_VERSION="1.6.2"  # fallback version
+                fi
+                curl -LO "https://github.com/opentofu/opentofu/releases/download/v${TOFU_VERSION}/tofu_${TOFU_VERSION}_linux_amd64.tar.gz"
+                tar -xzf "tofu_${TOFU_VERSION}_linux_amd64.tar.gz"
+                sudo mv tofu /usr/local/bin/
+                sudo chmod +x /usr/local/bin/tofu
+                """
+                result = subprocess.run(
+                    install_script,
+                    shell=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=300
+                )
+                if result.returncode != 0:
+                    print(f"Failed to install OpenTofu: {result.stderr}")
+                    sys.exit(1)
+                
+                # Check if tofu is now available
+                if shutil.which("tofu") is None:
+                    print("OpenTofu installation failed - tofu command not found")
+                    sys.exit(1)
+                    
+                print("✅ OpenTofu installed successfully")
+                # Use tofu instead of terraform for the rest of the script
+                self.terraform_cmd = "tofu"
+            except subprocess.TimeoutExpired:
+                print("OpenTofu installation timed out")
+                sys.exit(1)
+            except Exception as e:
+                print(f"Error installing OpenTofu: {e}")
+                sys.exit(1)
+        elif tofu_available:
+            self.terraform_cmd = "tofu"
+            print("✅ OpenTofu found")
+        else:
+            self.terraform_cmd = "terraform"
+            print("✅ Terraform found")
+        
+        # Check other dependencies
+        required_commands = ["ansible", "kubectl", "python3"]
+        missing = []
+        for cmd in required_commands:
+            if shutil.which(cmd) is None:
+                missing.append(cmd)
+        
+        if missing:
+            print(f"Missing required dependencies: {', '.join(missing)}")
+            print("Installing missing dependencies...")
+            try:
+                install_cmd = ["sudo", "apt", "update"]
+                subprocess.run(install_cmd, check=True, capture_output=True)
+                
+                install_cmd = ["sudo", "apt", "install", "-y"] + missing
+                if "kubectl" in missing:
+                    # kubectl needs special handling
+                    install_cmd.remove("kubectl")
+                    # Install kubectl separately
+                    kubectl_install = """
+                    curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+                    chmod +x kubectl
+                    sudo mv kubectl /usr/local/bin/
+                    """
+                    subprocess.run(kubectl_install, shell=True, check=True)
+                
+                if len(install_cmd) > 4:  # Still has packages to install
+                    subprocess.run(install_cmd, check=True, capture_output=True)
+                
+                print("✅ All dependencies installed")
+            except subprocess.CalledProcessError as e:
+                print(f"Failed to install dependencies: {e}")
+                sys.exit(1)
+        else:
+            print("✅ All dependencies available")
+
     def run_command(self, command, description, cwd=None, check=True, timeout=None, log_file=None):
         """Run a command with proper error handling and optional logging"""
         if self.verbose:
@@ -287,7 +382,7 @@ class ClusterDeployer:
         
         # Destroy any existing resources
         self.run_command(
-            ["terraform", "destroy", "-auto-approve"],
+            [self.terraform_cmd, "destroy", "-auto-approve"],
             "Destroying existing Terraform resources",
             cwd=self.terraform_dir,
             check=False
@@ -306,7 +401,7 @@ class ClusterDeployer:
         print("Verifying Terraform output...")
         
         result = self.run_command(
-            ["terraform", "output", "-json"],
+            [self.terraform_cmd, "output", "-json"],
             "Getting Terraform output",
             cwd=self.terraform_dir,
             check=False
@@ -345,7 +440,7 @@ class ClusterDeployer:
         
         # Get VM IPs from Terraform
         result = self.run_command(
-            ["terraform", "output", "-json"],
+            [self.terraform_cmd, "output", "-json"],
             "Getting VM IPs",
             cwd=self.terraform_dir
         )
@@ -407,7 +502,7 @@ class ClusterDeployer:
         # Initialize Terraform if needed
         if not (self.terraform_dir / ".terraform").exists():
             self.run_command(
-                ["terraform", "init"],
+                [self.terraform_cmd, "init"],
                 "Initializing Terraform",
                 cwd=self.terraform_dir
             )
@@ -418,7 +513,7 @@ class ClusterDeployer:
             # Run Terraform apply with serial execution to avoid Ceph RBD lock issues
             # Since template 9000 only exists on node1, we must clone serially
             result = self.run_command(
-                ["terraform", "apply", "-auto-approve", "-parallelism=1"],
+                [self.terraform_cmd, "apply", "-auto-approve", "-parallelism=1"],
                 "Running Terraform apply (serial mode to avoid Ceph locks)",
                 cwd=self.terraform_dir,
                 check=False
@@ -1581,7 +1676,7 @@ spec:
         if (self.terraform_dir / "terraform.tfstate").exists():
             try:
                 result = self.run_command(
-                    ["terraform", "show", "-json"],
+                    [self.terraform_cmd, "show", "-json"],
                     "Reading Terraform state for VM placement",
                     cwd=self.terraform_dir,
                     check=False
@@ -1607,14 +1702,14 @@ spec:
         # Fallback: try to get from Terraform plan
         try:
             result = self.run_command(
-                ["terraform", "plan", "-out=/tmp/tfplan"],
+                [self.terraform_cmd, "plan", "-out=/tmp/tfplan"],
                 "Generating Terraform plan for VM placement",
                 cwd=self.terraform_dir,
                 check=False
             )
             if result.returncode == 0:
                 result = self.run_command(
-                    ["terraform", "show", "-json", "/tmp/tfplan"],
+                    [self.terraform_cmd, "show", "-json", "/tmp/tfplan"],
                     "Reading Terraform plan for VM placement", 
                     cwd=self.terraform_dir,
                     check=False
