@@ -1,0 +1,21 @@
+---
+# MetalLB IP Address Pool and L2 Advertisement
+# This file is applied after MetalLB CRDs are installed
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: apps-pool
+  namespace: metallb-system
+spec:
+  addresses:
+  - 10.10.1.50-10.10.1.79
+---
+# L2Advertisement for the IP pool
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: apps-l2-advertisement
+  namespace: metallb-system
+spec:
+  ipAddressPools:
+  - apps-pool

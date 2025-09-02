@@ -30,11 +30,12 @@ This solution provides comprehensive automation for deploying and managing produ
 ### Key Features
 
 - **Zero-Touch Deployment**: Fully automated cluster provisioning from infrastructure to platform services
+- **Complete Applications Platform**: Automated ingress, monitoring, and storage with single-command deployment
 - **High Availability**: Multi-master control plane with integrated load balancing
 - **Production Hardening**: Security best practices and enterprise-grade configurations
 - **Scalable Architecture**: Easy horizontal scaling with automated node management
 - **Infrastructure as Code**: Version-controlled, repeatable deployments with state management
-- **Comprehensive Monitoring**: Integrated observability stack with Prometheus and Grafana
+- **Ingress-Based Access**: User-friendly URLs for all platform services via `*.apps.sddc.info`
 
 ### Technology Stack
 
@@ -45,6 +46,9 @@ This solution provides comprehensive automation for deploying and managing produ
 | **Container Network** | Cilium | Latest | eBPF-based CNI with advanced networking and security |
 | **Storage** | Proxmox CSI | Latest | Dynamic persistent volume provisioning |
 | **Load Balancing** | MetalLB | Latest | Bare-metal LoadBalancer implementation |
+| **Ingress Controller** | NGINX Ingress | Latest | HTTP/HTTPS routing and SSL termination |
+| **GitOps Platform** | ArgoCD | Latest | Application lifecycle management and deployment |
+| **Monitoring** | Prometheus + Grafana | Latest | Observability and metrics visualization |
 | **Orchestration** | Python | 3.11+ | Deployment coordination and automation |
 
 ## Architecture
@@ -301,6 +305,163 @@ python3 scripts/deploy-fresh-cluster.py --kubernetes-only --fast
 - **Fast Mode**: 5-15 minutes (optimized re-run)
 - **Time Savings**: 50-70% reduction in deployment time
 
+## Applications Deployment
+
+### Complete Applications Stack
+
+Deploy the full applications platform including ingress, monitoring, and storage integration:
+
+```bash
+# Deploy complete applications stack (ingress + storage + monitoring)
+python3 scripts/deploy-applications.py
+
+# Deploy only storage integration
+python3 scripts/deploy-applications.py --storage-only
+
+# Deploy only monitoring stack  
+python3 scripts/deploy-applications.py --monitoring-only
+
+# Verify existing deployments
+python3 scripts/deploy-applications.py --verify-only
+
+# Skip prerequisites check for faster re-runs
+python3 scripts/deploy-applications.py --skip-prerequisites
+```
+
+### Automated Improvements and Fixes
+
+The deployment script includes comprehensive automation with lessons learned from production deployments:
+
+- **Reliable Storage Integration**: Uses proxmox-rbd storage class exclusively with proper volume binding
+- **Helm-based Monitoring**: Deploys monitoring stack via Helm for better resource management and reliability
+- **Automatic Cleanup**: Cleans up conflicting ArgoCD applications and resources automatically
+- **Consistent Configuration**: All passwords standardized to `SecurePassword123!` across the platform
+- **Enhanced Error Handling**: Comprehensive retry logic and graceful failure handling
+- **Resource Verification**: Validates all components are healthy before completion
+
+### Applications Architecture
+
+**Ingress Infrastructure (Deployed Automatically):**
+- **MetalLB LoadBalancer** - Bare-metal load balancing with IP pool `10.10.1.50-10.10.1.79`
+- **NGINX Ingress Controller** - HTTP/HTTPS routing at `10.10.1.60`
+- **DNS Wildcard** - All `*.apps.sddc.info` routes to ingress controller
+- **ArgoCD HTTP Configuration** - Insecure mode for HTTP ingress access
+
+**Storage Integration:**
+- **Proxmox CSI Plugin** - Dynamic persistent volume provisioning with automated credential management
+- **Ceph RBD Integration** - Distributed storage backend using only the RBD pool
+- **Storage Classes**: `proxmox-rbd` (default with ext4 filesystem)
+- **Node Topology Labeling** - Automatic region/zone labeling for storage affinity
+
+**Monitoring Stack:**
+- **Prometheus** - Metrics collection and storage (100Gi persistent storage)
+- **Grafana** - Visualization dashboards accessible via ingress
+- **AlertManager** - Alert processing and notifications
+- **Proxmox Exporter** - Infrastructure metrics collection
+
+**Key Features:**
+- **Zero-Touch Deployment** - Complete automation including DNS configuration and credential management
+- **Ingress-Based Access** - All services accessible via user-friendly URLs
+- **Persistent Storage** - All monitoring components use Proxmox Ceph RBD with automated provisioning
+- **High Availability** - Prometheus and AlertManager with 2 replicas
+- **Custom Dashboards** - Kubernetes cluster, Proxmox infrastructure, and Ceph storage
+- **Automated Discovery** - ServiceMonitor integration for metrics collection
+- **Credential Security** - All Proxmox CSI credentials managed via .env files (not stored in code)
+- **Consistent Passwords** - Standardized authentication across all platform services
+- **Helm-based Reliability** - Monitoring stack deployed via Helm for better resource management
+
+### Applications Access via Ingress
+
+**Primary Application URLs** (via `*.apps.sddc.info`):
+- **ArgoCD GitOps**: http://argocd.apps.sddc.info/
+- **Grafana Monitoring**: http://grafana.apps.sddc.info/
+- **Prometheus Metrics**: http://prometheus.apps.sddc.info/
+
+**Default Credentials:**
+- **Grafana**: Username `admin` / Password `SecurePassword123!`
+- **ArgoCD**: Username `admin` / Password from secret:
+  ```bash
+  kubectl -n argocd get secret argocd-initial-admin-secret \
+    -o jsonpath="{.data.password}" | base64 -d
+  ```
+
+**Note**: All application passwords are standardized to `SecurePassword123!` for consistency across the platform.
+
+**Alternative Access (Port Forward):**
+```bash
+# ArgoCD (if ingress pending)
+kubectl port-forward -n argocd svc/argocd-server 8080:80
+# Access: http://localhost:8080
+
+# Grafana (if ingress pending)
+kubectl port-forward -n monitoring svc/kube-prometheus-stack-grafana 3000:80
+# Access: http://localhost:3000
+
+# Prometheus
+kubectl port-forward -n monitoring svc/kube-prometheus-stack-prometheus 9090:9090
+# Access: http://localhost:9090
+
+# AlertManager
+kubectl port-forward -n monitoring svc/kube-prometheus-stack-alertmanager 9093:9093
+# Access: http://localhost:9093
+```
+
+### Storage Configuration
+
+#### Proxmox CSI Setup
+
+The applications deployment script automatically handles Proxmox CSI configuration:
+
+1. **Credential Management**: Checks for `.proxmox-csi.env` file and creates template if missing
+2. **Node Labeling**: Automatically labels all Kubernetes nodes with topology information
+3. **Storage Class Creation**: Creates `proxmox-rbd` storage class using only the RBD pool
+4. **Deployment**: Deploys official Proxmox CSI plugin with edge images
+
+**Required Configuration File**: `.proxmox-csi.env`
+```bash
+PROXMOX_URL="https://10.10.1.21:8006/api2/json"
+PROXMOX_TOKEN_ID="kubernetes-csi@pve!csi"
+PROXMOX_TOKEN_SECRET="your-token-secret-here"
+PROXMOX_REGION="cluster"
+PROXMOX_STORAGE="rbd"
+PROXMOX_INSECURE="true"
+```
+
+**Automatic Proxmox User Creation** (requires SSH access to Proxmox):
+```bash
+# Create CSI user and token on Proxmox
+python3 scripts/deploy-applications.py --create-proxmox-user
+```
+
+### Storage Testing
+
+Test persistent volume provisioning:
+
+```bash
+# Create test PVC
+kubectl apply -f - <<EOF
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: test-pvc
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+EOF
+
+# Verify PVC is bound and check Proxmox
+kubectl get pvc test-pvc
+kubectl describe pvc test-pvc
+
+# Check created volume in Proxmox (should appear in RBD storage)
+# Volume name format: vm-<id>-pvc-<uuid>
+
+# Cleanup
+kubectl delete pvc test-pvc
+```
+
 ## Operations
 
 ## Cluster Status and Access
@@ -321,28 +482,38 @@ kubectl cluster-info
 
 ### Management Interfaces
 
-**Kubernetes Dashboard**
-```bash
-kubectl proxy
-# Access: http://localhost:8001/api/v1/namespaces/kubernetes-dashboard/services/https:kubernetes-dashboard:/proxy/
-```
+**Grafana Monitoring Dashboard** (Primary)
+- Ingress Access: http://grafana.apps.sddc.info/ (recommended)
+- Username: `admin` / Password: `kubernetes-admin-2024`
+- Features: Kubernetes cluster metrics, Proxmox infrastructure, Ceph storage
 
-**Grafana Monitoring**
-```bash
-kubectl port-forward -n monitoring svc/prometheus-grafana 3000:80
-# Access: http://localhost:3000 (admin/admin)
-```
+**ArgoCD GitOps Platform**
+- Ingress Access: http://argocd.apps.sddc.info/
+- Username: `admin` / Password: Get from secret (see command above)
+- Features: Application lifecycle management, GitOps workflows
 
 **Prometheus Metrics**
 ```bash
-kubectl port-forward -n monitoring svc/prometheus-kube-prometheus-prometheus 9090:9090
+kubectl port-forward -n monitoring svc/kube-prometheus-stack-prometheus 9090:9090
 # Access: http://localhost:9090
+```
+
+**AlertManager**
+```bash
+kubectl port-forward -n monitoring svc/kube-prometheus-stack-alertmanager 9093:9093
+# Access: http://localhost:9093
 ```
 
 **Cilium Hubble UI**
 ```bash
 kubectl port-forward -n kube-system svc/hubble-ui 12000:80
 # Access: http://localhost:12000
+```
+
+**Kubernetes Dashboard** (Optional)
+```bash
+kubectl proxy
+# Access: http://localhost:8001/api/v1/namespaces/kubernetes-dashboard/services/https:kubernetes-dashboard:/proxy/
 ```
 
 ### Scaling Operations

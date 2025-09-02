@@ -1,0 +1,17 @@
+---
+# Proxmox CSI Plugin Configuration
+# Updated with proper API token and RBD-only storage
+apiVersion: v1
+kind: Secret
+metadata:
+  name: proxmox-csi-config
+  namespace: csi-proxmox
+type: Opaque
+stringData:
+  config.yaml: |
+    clusters:
+    - url: https://10.10.1.21:8006/api2/json
+      insecure: true
+      token_id: "kubernetes-csi@pve!csi"
+      token_secret: "f0a69b38-dcd1-429b-b22c-451dc6a33431"
+      region: cluster

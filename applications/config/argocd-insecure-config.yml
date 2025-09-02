@@ -1,0 +1,16 @@
+---
+# ArgoCD Configuration for HTTP Ingress
+# Configures ArgoCD to work properly behind HTTP ingress without SSL termination
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-cmd-params-cm
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: argocd-cmd-params-cm
+    app.kubernetes.io/part-of: argocd
+data:
+  # Enable insecure mode for HTTP ingress
+  server.insecure: "true"
+  # Disable internal TLS for better ingress compatibility
+  server.disable.auth: "false"

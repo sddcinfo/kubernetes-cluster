@@ -1,0 +1,268 @@
+---
+# Comprehensive monitoring stack with Prometheus, Grafana, and AlertManager
+# Includes persistent storage integration and Proxmox monitoring
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+---
+# Grafana admin credentials
+apiVersion: v1
+kind: Secret
+metadata:
+  name: grafana-admin-credentials
+  namespace: monitoring
+type: Opaque
+stringData:
+  admin-user: admin
+  admin-password: SecurePassword123!
+---
+# Kube-Prometheus-Stack via ArgoCD
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kube-prometheus-stack
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://prometheus-community.github.io/helm-charts
+    targetRevision: 65.8.1
+    chart: kube-prometheus-stack
+    helm:
+      values: |
+        # Global configuration
+        nameOverride: ""
+        fullnameOverride: ""
+        
+        # Prometheus configuration
+        prometheus:
+          prometheusSpec:
+            # Persistent storage for metrics
+            storageSpec:
+              volumeClaimTemplate:
+                spec:
+                  storageClassName: proxmox-rbd
+                  accessModes: ["ReadWriteOnce"]
+                  resources:
+                    requests:
+                      storage: 100Gi
+            
+            # Data retention policies
+            retention: 30d
+            retentionSize: 90GB
+            
+            # Resource limits
+            resources:
+              requests:
+                cpu: 500m
+                memory: 2Gi
+              limits:
+                cpu: 2000m
+                memory: 8Gi
+            
+            # High availability
+            replicas: 2
+            
+            # Service monitor selector
+            serviceMonitorSelectorNilUsesHelmValues: false
+            podMonitorSelectorNilUsesHelmValues: false
+            ruleSelectorNilUsesHelmValues: false
+            
+            # External labels for federation
+            externalLabels:
+              cluster: kubernetes-cluster
+              environment: production
+              
+            # Additional scrape configs for Proxmox
+            additionalScrapeConfigs:
+            - job_name: 'proxmox-nodes'
+              static_configs:
+              - targets:
+                - '10.10.1.21:9100'  # node1
+                - '10.10.1.22:9100'  # node2
+                - '10.10.1.23:9100'  # node3
+                - '10.10.1.24:9100'  # node4
+              metrics_path: '/metrics'
+              scrape_interval: 30s
+              scrape_timeout: 10s
+              
+            - job_name: 'proxmox-cluster'
+              static_configs:
+              - targets:
+                - '10.10.1.21:9221'  # Proxmox VE exporter
+              metrics_path: '/pve'
+              scrape_interval: 60s
+              scrape_timeout: 30s
+        
+        # Grafana configuration
+        grafana:
+          enabled: true
+          
+          # Admin credentials from secret
+          admin:
+            existingSecret: grafana-admin-credentials
+            userKey: admin-user
+            passwordKey: admin-password
+          
+          # Persistent storage
+          persistence:
+            enabled: true
+            storageClassName: proxmox-rbd
+            size: 20Gi
+            accessModes:
+            - ReadWriteOnce
+          
+          # Service configuration
+          service:
+            type: LoadBalancer
+            port: 80
+            targetPort: 3000
+            annotations:
+              metallb.universe.tf/loadBalancerIPs: "10.10.1.50"
+          
+          # Resource limits
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          
+          # Grafana configuration
+          grafana.ini:
+            server:
+              domain: grafana.k8s.sddc.info
+              root_url: http://grafana.k8s.sddc.info/
+            users:
+              allow_sign_up: false
+              auto_assign_org: true
+              auto_assign_org_role: Viewer
+            auth.anonymous:
+              enabled: false
+            analytics:
+              reporting_enabled: false
+              check_for_updates: false
+          
+          # Default dashboards
+          defaultDashboardsEnabled: true
+          defaultDashboardsTimezone: UTC
+          
+          # Additional dashboards
+          dashboardProviders:
+            dashboardproviders.yaml:
+              apiVersion: 1
+              providers:
+              - name: 'default'
+                orgId: 1
+                folder: ''
+                type: file
+                disableDeletion: false
+                editable: true
+                options:
+                  path: /var/lib/grafana/dashboards/default
+              - name: 'proxmox'
+                orgId: 1
+                folder: 'Proxmox'
+                type: file
+                disableDeletion: false
+                editable: true
+                options:
+                  path: /var/lib/grafana/dashboards/proxmox
+          
+          # Sidecar for dashboard discovery
+          sidecar:
+            dashboards:
+              enabled: true
+              label: grafana_dashboard
+              labelValue: "1"
+              folder: /tmp/dashboards
+              searchNamespace: ALL
+            datasources:
+              enabled: true
+              label: grafana_datasource
+              labelValue: "1"
+        
+        # AlertManager configuration
+        alertmanager:
+          enabled: true
+          alertmanagerSpec:
+            # Persistent storage
+            storage:
+              volumeClaimTemplate:
+                spec:
+                  storageClassName: proxmox-rbd
+                  accessModes: ["ReadWriteOnce"]
+                  resources:
+                    requests:
+                      storage: 10Gi
+            
+            # High availability
+            replicas: 2
+            
+            # Resource limits
+            resources:
+              requests:
+                cpu: 100m
+                memory: 128Mi
+              limits:
+                cpu: 500m
+                memory: 512Mi
+            
+            # Service configuration
+            service:
+              type: LoadBalancer
+              port: 9093
+              annotations:
+                metallb.universe.tf/loadBalancerIPs: "10.10.1.51"
+        
+        # Node Exporter
+        nodeExporter:
+          enabled: true
+          
+        # Kube State Metrics
+        kubeStateMetrics:
+          enabled: true
+          
+        # Component monitoring
+        kubeApiServer:
+          enabled: true
+        kubeControllerManager:
+          enabled: true
+        kubeScheduler:
+          enabled: true  
+        kubeProxy:
+          enabled: true
+        kubeEtcd:
+          enabled: true
+        kubelet:
+          enabled: true
+          serviceMonitor:
+            cAdvisorMetricRelabelings:
+            # Drop high cardinality metrics
+            - sourceLabels: [__name__]
+              regex: 'container_cpu_usage_seconds_total|container_memory_usage_bytes'
+              action: drop
+            
+        # Prometheus Operator
+        prometheusOperator:
+          enabled: true
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true
+    - ServerSideApply=true
