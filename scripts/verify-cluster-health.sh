@@ -4,8 +4,11 @@
 
 set -e
 
-LOG_FILE="/var/log/cluster-health-check.log"
+LOG_FILE="${HOME}/logs/cluster-health-check.log"
 TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
+
+# Create logs directory if it doesn't exist
+mkdir -p "$(dirname "$LOG_FILE")"
 
 log() {
     echo "[$TIMESTAMP] $1" | tee -a "$LOG_FILE"
@@ -126,7 +129,7 @@ fi
 log "7. Checking critical pods..."
 if [ -f /home/sysadmin/.kube/config-direct ]; then
     # Check system pods
-    SYSTEM_PODS=$(kubectl --kubeconfig=/home/sysladmin/.kube/config-direct get pods -n kube-system --no-headers 2>/dev/null | wc -l || echo "0")
+    SYSTEM_PODS=$(kubectl --kubeconfig=/home/sysadmin/.kube/config-direct get pods -n kube-system --no-headers 2>/dev/null | wc -l || echo "0")
     SYSTEM_READY=$(kubectl --kubeconfig=/home/sysadmin/.kube/config-direct get pods -n kube-system --no-headers 2>/dev/null | grep -c " Running " || echo "0")
     
     log "  System pods: $SYSTEM_READY/$SYSTEM_PODS running"
