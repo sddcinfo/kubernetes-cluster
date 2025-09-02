@@ -204,27 +204,18 @@ class DNSDeployer:
             if result.returncode == 0:
                 log_info("dnsmasq service is running")
                 
-                # Reload configuration
-                log_step("Reloading dnsmasq configuration...")
-                result = self.run_command("sudo systemctl reload dnsmasq", check=False)
+                # Always restart to ensure new configuration is loaded
+                log_step("Restarting dnsmasq service...")
+                result = self.run_command("sudo systemctl restart dnsmasq", check=False)
                 
                 if result.returncode == 0:
-                    log_info("dnsmasq configuration reloaded successfully")
-                    # Give it a moment to reload
-                    time.sleep(2)
+                    log_info("dnsmasq service restarted successfully")
+                    # Give it a moment to fully restart
+                    time.sleep(3)
                     return True
                 else:
-                    log_error("Failed to reload dnsmasq configuration")
-                    # Try restart as fallback
-                    log_step("Attempting service restart...")
-                    result = self.run_command("sudo systemctl restart dnsmasq", check=False)
-                    if result.returncode == 0:
-                        log_info("dnsmasq service restarted successfully")
-                        time.sleep(3)
-                        return True
-                    else:
-                        log_error("Failed to restart dnsmasq service")
-                        return False
+                    log_error("Failed to restart dnsmasq service")
+                    return False
             else:
                 log_warning("dnsmasq service is not running")
                 log_step("Starting dnsmasq service...")
