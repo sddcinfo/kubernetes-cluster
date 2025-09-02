@@ -111,7 +111,6 @@ class ClusterDeployer:
         
         # Check other dependencies
         required_commands = ["ansible", "kubectl", "python3"]
-        required_packages = ["python3-venv", "python3-pip"]  # Additional packages needed
         missing = []
         missing_packages = []
         
@@ -119,16 +118,33 @@ class ClusterDeployer:
             if shutil.which(cmd) is None:
                 missing.append(cmd)
         
-        # Check for required packages (these don't have commands to check)
+        # Check for Python version-specific venv package
         try:
-            import venv
-        except ImportError:
-            missing_packages.append("python3-venv")
-            
-        try:
-            import pip
-        except ImportError:
-            missing_packages.append("python3-pip")
+            # Test actual venv creation, not just import
+            import tempfile
+            import os
+            test_dir = tempfile.mkdtemp()
+            test_venv_path = os.path.join(test_dir, "test_venv")
+            result = subprocess.run([
+                "python3", "-m", "venv", test_venv_path
+            ], capture_output=True)
+            if result.returncode == 0:
+                # Clean up test venv
+                import shutil as sh
+                sh.rmtree(test_dir)
+            else:
+                # Get Python version and add specific venv package
+                python_version = subprocess.run(["python3", "--version"], capture_output=True, text=True).stdout.strip()
+                if "3.12" in python_version:
+                    missing_packages.append("python3.12-venv")
+                elif "3.11" in python_version:
+                    missing_packages.append("python3.11-venv")
+                else:
+                    missing_packages.append("python3-venv")
+                # Also ensure pip is available
+                missing_packages.append("python3-pip")
+        except Exception:
+            missing_packages.extend(["python3-venv", "python3-pip"])
         
         if missing or missing_packages:
             all_missing = missing + missing_packages
