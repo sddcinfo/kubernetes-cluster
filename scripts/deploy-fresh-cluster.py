@@ -93,7 +93,7 @@ class ClusterDeployer:
                     print("OpenTofu installation failed - tofu command not found")
                     sys.exit(1)
                     
-                print("✅ OpenTofu installed successfully")
+                print("OpenTofu installed successfully")
                 # Use tofu instead of terraform for the rest of the script
                 self.terraform_cmd = "tofu"
             except subprocess.TimeoutExpired:
@@ -104,10 +104,10 @@ class ClusterDeployer:
                 sys.exit(1)
         elif tofu_available:
             self.terraform_cmd = "tofu"
-            print("✅ OpenTofu found")
+            print("OpenTofu found")
         else:
             self.terraform_cmd = "terraform"
-            print("✅ Terraform found")
+            print("Terraform found")
         
         # Check other dependencies
         required_commands = ["ansible", "kubectl", "python3"]
@@ -157,12 +157,12 @@ class ClusterDeployer:
                 if len(install_cmd) > 4:  # Still has packages to install
                     subprocess.run(install_cmd, check=True, capture_output=True)
                 
-                print("✅ All dependencies installed")
+                print("All dependencies installed")
             except subprocess.CalledProcessError as e:
                 print(f"Failed to install dependencies: {e}")
                 sys.exit(1)
         else:
-            print("✅ All dependencies available")
+            print("All dependencies available")
 
     def run_command(self, command, description, cwd=None, check=True, timeout=None, log_file=None):
         """Run a command with proper error handling and optional logging"""
