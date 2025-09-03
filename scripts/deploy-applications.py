@@ -5,6 +5,7 @@ Complete deployment of storage, monitoring, and ingress with full automation
 """
 
 import json
+import os
 import subprocess
 import sys
 import time
@@ -544,13 +545,53 @@ PROXMOX_INSECURE="true"
                 # Wait for MetalLB CRDs to be established before applying IP pool
                 self.log("Waiting for MetalLB CRDs to be ready...")
                 self.run_command("kubectl wait --for=condition=established --timeout=120s crd/ipaddresspools.metallb.io || true",
-                               "Wait for MetalLB CRDs")
+                               "Wait for IPAddressPool CRD")
+                self.run_command("kubectl wait --for=condition=established --timeout=120s crd/l2advertisements.metallb.io || true",
+                               "Wait for L2Advertisement CRD")
+                
+                # Wait for MetalLB webhook to be ready
+                self.log("Waiting for MetalLB webhook to be operational...")
+                max_retries = 30
+                for i in range(max_retries):
+                    try:
+                        # Test if webhook is ready by doing a dry-run
+                        test_manifest = """
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: test-pool
+  namespace: metallb-system
+spec:
+  addresses:
+  - 192.168.1.1-192.168.1.1
+"""
+                        with tempfile.NamedTemporaryFile(mode='w', suffix='.yml', delete=False) as f:
+                            f.write(test_manifest)
+                            test_file = f.name
+                        
+                        result = subprocess.run(
+                            f"kubectl apply --dry-run=server -f {test_file}",
+                            shell=True,
+                            capture_output=True,
+                            text=True
+                        )
+                        os.unlink(test_file)
+                        
+                        if result.returncode == 0:
+                            self.log("MetalLB webhook is ready")
+                            break
+                    except Exception:
+                        pass
+                    
+                    if i < max_retries - 1:
+                        time.sleep(2)
+                    else:
+                        self.log("MetalLB webhook may not be fully ready, continuing anyway", "WARNING")
                 
                 # Apply MetalLB IP pool configuration
                 ip_pool_path = self.applications_dir / "ingress" / "metallb-ip-pool.yml"
                 if ip_pool_path.exists():
                     self.log("Configuring MetalLB IP address pool...")
-                    time.sleep(10)  # Additional wait for CRDs
                     self.run_command(f"kubectl apply -f {ip_pool_path}",
                                    "Configure MetalLB IP pool")
                 
