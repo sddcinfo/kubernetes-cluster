@@ -6,6 +6,7 @@ Complete deployment of storage, monitoring, and ingress with full automation
 
 import json
 import os
+import requests
 import subprocess
 import sys
 import time
@@ -203,55 +204,56 @@ class ApplicationsDeployer:
                 return
             
             current_password = result.stdout.strip()
+            self.log(f"Current ArgoCD password retrieved", "INFO")
             
-            # Login with current password and change to standard password
-            # First, port-forward to ArgoCD server temporarily
-            import subprocess
-            import signal
-            import time
-            
-            # Start port-forward in background
-            port_forward = subprocess.Popen(
-                ["kubectl", "port-forward", "-n", "argocd", "svc/argocd-server", "8080:443"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
-            )
-            
-            # Wait a moment for port-forward to establish
-            time.sleep(3)
-            
+            # Use API directly instead of CLI for more reliability
             try:
-                # Install argocd CLI if not available
-                cli_result = subprocess.run(["which", "argocd"], capture_output=True)
-                if cli_result.returncode != 0:
-                    self.log("ArgoCD CLI not found, installing...")
-                    subprocess.run([
-                        "curl", "-sSL", "-o", "/tmp/argocd",
-                        "https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64"
-                    ], check=True)
-                    subprocess.run(["chmod", "+x", "/tmp/argocd"], check=True)
-                    subprocess.run(["sudo", "mv", "/tmp/argocd", "/usr/local/bin/argocd"], check=True)
+                # Get ArgoCD session token
+                import requests
+                import json
                 
-                # Login and update password
-                subprocess.run([
-                    "argocd", "login", "localhost:8080",
-                    "--username", "admin",
-                    "--password", current_password,
-                    "--insecure"
-                ], check=True, capture_output=True)
+                # Try via ingress first
+                session_url = "http://argocd.apps.sddc.info/api/v1/session"
+                login_data = {"username": "admin", "password": current_password}
                 
-                subprocess.run([
-                    "argocd", "account", "update-password",
-                    "--current-password", current_password,
-                    "--new-password", self.standard_password
-                ], check=True, capture_output=True)
+                self.log("Getting ArgoCD session token via ingress...")
+                response = requests.post(session_url, json=login_data, timeout=10)
                 
-                self.log(f"ArgoCD admin password updated to standard password", "SUCCESS")
-                
-            finally:
-                # Clean up port-forward
-                port_forward.terminate()
-                port_forward.wait()
+                if response.status_code == 200:
+                    token = response.json().get("token")
+                    
+                    # Update password using API
+                    password_url = "http://argocd.apps.sddc.info/api/v1/account/password"
+                    headers = {"Authorization": f"Bearer {token}"}
+                    password_data = {
+                        "currentPassword": current_password,
+                        "newPassword": self.standard_password
+                    }
+                    
+                    self.log("Updating ArgoCD password via API...")
+                    update_response = requests.put(password_url, json=password_data, headers=headers, timeout=10)
+                    
+                    if update_response.status_code == 200:
+                        self.log("ArgoCD admin password updated successfully", "SUCCESS")
+                        
+                        # Verify new password works
+                        verify_data = {"username": "admin", "password": self.standard_password}
+                        verify_response = requests.post(session_url, json=verify_data, timeout=10)
+                        
+                        if verify_response.status_code == 200:
+                            self.log("New password verification successful", "SUCCESS")
+                        else:
+                            self.log("New password verification failed", "WARNING")
+                    else:
+                        self.log(f"Password update failed: {update_response.status_code}", "WARNING")
+                        self.log("ArgoCD will use the generated password", "INFO")
+                else:
+                    self.log(f"Failed to get ArgoCD session token: {response.status_code}", "WARNING")
+                    self.log("ArgoCD will use the generated password", "INFO")
+                    
+            except Exception as api_error:
+                self.log(f"API password update failed: {str(api_error)}", "WARNING")
+                self.log("ArgoCD will use the generated password", "INFO")
                 
         except Exception as e:
             self.log(f"Failed to update ArgoCD password: {str(e)}", "WARNING")

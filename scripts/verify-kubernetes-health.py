@@ -70,18 +70,29 @@ def test_argocd_login():
     """Tests login to ArgoCD."""
     print("\n--- Testing ArgoCD Login ---")
     try:
+        # First, try the standard password
+        standard_password = "SecurePassword123!"
+        url = "https://argocd.apps.sddc.info/api/v1/session"
+        payload = {"username": "admin", "password": standard_password}
+        response = requests.post(url, json=payload, verify=False)
+        if response.status_code == 200:
+            print("ArgoCD login successful with standard password.")
+            return
+
+        # If the standard password fails, try the initial admin secret
         v1 = client.CoreV1Api()
         secret = v1.read_namespaced_secret("argocd-initial-admin-secret", "argocd")
         password = base64.b64decode(secret.data["password"]).decode("utf-8")
-        url = "https://argocd.apps.sddc.info/api/v1/session"
         payload = {"username": "admin", "password": password}
         response = requests.post(url, json=payload, verify=False)
         if response.status_code == 200:
-            print("ArgoCD login successful.")
+            print("ArgoCD login successful with initial admin secret.")
         else:
             print(f"ArgoCD login failed. Status code: {response.status_code}")
+            print(f"Response: {response.text}")
     except Exception as e:
         print(f"Error testing ArgoCD login: {e}")
+
 
 def test_grafana_login():
     """Tests login to Grafana."""
