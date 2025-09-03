@@ -679,6 +679,9 @@ spec:
                     self.run_command(f"kubectl apply -f {ip_pool_path}",
                                    "Configure MetalLB IP pool")
                 
+                # Sync ArgoCD applications to ensure ingress components are deployed
+                self.sync_argocd_applications()
+                
                 # Update DNS configuration for ingress wildcard
                 self.log("Updating DNS configuration for ingress...")
                 self.deploy_dns_configuration()
@@ -1301,6 +1304,77 @@ alertmanager:
         except Exception as e:
             self.log(f"Deployment failed: {str(e)}", "ERROR")
             sys.exit(1)
+
+    def sync_argocd_applications(self):
+        """Sync ArgoCD applications to ensure they are deployed"""
+        try:
+            self.log("Syncing ArgoCD applications...")
+            
+            # Get list of applications
+            result = self.run_command(
+                "kubectl get applications -n argocd -o json",
+                "List ArgoCD applications",
+                check=False
+            )
+            
+            if result.returncode != 0:
+                self.log("No ArgoCD applications found", "INFO")
+                return
+            
+            import json
+            apps_data = json.loads(result.stdout)
+            
+            for app in apps_data.get('items', []):
+                app_name = app['metadata']['name']
+                sync_status = app.get('status', {}).get('sync', {}).get('status', 'Unknown')
+                
+                if sync_status != 'Synced':
+                    self.log(f"Syncing application: {app_name}")
+                    # Use argocd CLI to sync instead of patch
+                    self.run_command(
+                        f"argocd app sync {app_name} --server localhost:8080 --insecure --auth-token '' || kubectl patch application {app_name} -n argocd --type merge -p '{{\"spec\":{{\"syncPolicy\":{{\"automated\":{{\"prune\":true,\"selfHeal\":true}}}}}}}}'",
+                        f"Sync {app_name}",
+                        check=False
+                    )
+                    
+                    # Wait a moment for sync to initiate
+                    time.sleep(2)
+            
+            # Wait for applications to sync
+            self.log("Waiting for applications to sync...")
+            max_wait = 180  # 3 minutes
+            start_time = time.time()
+            
+            while time.time() - start_time < max_wait:
+                result = self.run_command(
+                    "kubectl get applications -n argocd -o json",
+                    "Check sync status",
+                    check=False
+                )
+                
+                if result.returncode == 0:
+                    apps_data = json.loads(result.stdout)
+                    all_synced = True
+                    
+                    for app in apps_data.get('items', []):
+                        app_name = app['metadata']['name']
+                        sync_status = app.get('status', {}).get('sync', {}).get('status', 'Unknown')
+                        health_status = app.get('status', {}).get('health', {}).get('status', 'Unknown')
+                        
+                        if sync_status != 'Synced' or health_status not in ['Healthy', 'Progressing']:
+                            all_synced = False
+                            break
+                    
+                    if all_synced:
+                        self.log("All ArgoCD applications synced successfully", "SUCCESS")
+                        return
+                
+                time.sleep(10)
+            
+            self.log("Timeout waiting for ArgoCD applications to sync", "WARNING")
+            
+        except Exception as e:
+            self.log(f"Failed to sync ArgoCD applications: {str(e)}", "WARNING")
 
 
 def main():
