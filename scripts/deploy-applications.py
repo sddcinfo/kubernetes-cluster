@@ -182,9 +182,6 @@ class ApplicationsDeployer:
         self.run_command("kubectl wait --for=condition=available --timeout=300s deployment/argocd-server -n argocd",
                         "Wait for ArgoCD server")
         
-        # Update ArgoCD admin password to standard password
-        self.update_argocd_password()
-        
         self.log("ArgoCD installed successfully", "SUCCESS")
     
     def update_argocd_password(self):
@@ -746,6 +743,9 @@ spec:
                     )
                     if test_result.returncode == 0 and test_result.stdout.strip() == "200":
                         self.log("ArgoCD ingress connectivity verified", "SUCCESS")
+                        
+                        # Now that ingress is working, update ArgoCD password
+                        self.update_argocd_password()
                     else:
                         self.log("ArgoCD ingress connectivity test failed - may need time to propagate", "WARNING")
                 else:
@@ -1201,7 +1201,7 @@ alertmanager:
 │                                                                    │
 │  All Applications Login: admin / SecurePassword123!             │
 │                                                                    │
-│  ArgoCD:   admin / SecurePassword123!                            │
+│  ArgoCD:   admin / SecurePassword123! (updated automatically)    │
 │  Grafana:  admin / SecurePassword123!                            │
 │                                                                    │
 └────────────────────────────────────────────────────────────────────┘
