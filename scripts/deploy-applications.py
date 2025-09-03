@@ -181,7 +181,81 @@ class ApplicationsDeployer:
         self.run_command("kubectl wait --for=condition=available --timeout=300s deployment/argocd-server -n argocd",
                         "Wait for ArgoCD server")
         
+        # Update ArgoCD admin password to standard password
+        self.update_argocd_password()
+        
         self.log("ArgoCD installed successfully", "SUCCESS")
+    
+    def update_argocd_password(self):
+        """Update ArgoCD admin password to standard password"""
+        try:
+            self.log("Setting ArgoCD admin password...")
+            
+            # Get current admin password from secret
+            result = self.run_command(
+                "kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d",
+                "Get current ArgoCD password",
+                check=False
+            )
+            
+            if result.returncode != 0:
+                self.log("ArgoCD initial password secret not found, skipping password update", "WARNING")
+                return
+            
+            current_password = result.stdout.strip()
+            
+            # Login with current password and change to standard password
+            # First, port-forward to ArgoCD server temporarily
+            import subprocess
+            import signal
+            import time
+            
+            # Start port-forward in background
+            port_forward = subprocess.Popen(
+                ["kubectl", "port-forward", "-n", "argocd", "svc/argocd-server", "8080:443"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+            
+            # Wait a moment for port-forward to establish
+            time.sleep(3)
+            
+            try:
+                # Install argocd CLI if not available
+                cli_result = subprocess.run(["which", "argocd"], capture_output=True)
+                if cli_result.returncode != 0:
+                    self.log("ArgoCD CLI not found, installing...")
+                    subprocess.run([
+                        "curl", "-sSL", "-o", "/tmp/argocd",
+                        "https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64"
+                    ], check=True)
+                    subprocess.run(["chmod", "+x", "/tmp/argocd"], check=True)
+                    subprocess.run(["sudo", "mv", "/tmp/argocd", "/usr/local/bin/argocd"], check=True)
+                
+                # Login and update password
+                subprocess.run([
+                    "argocd", "login", "localhost:8080",
+                    "--username", "admin",
+                    "--password", current_password,
+                    "--insecure"
+                ], check=True, capture_output=True)
+                
+                subprocess.run([
+                    "argocd", "account", "update-password",
+                    "--current-password", current_password,
+                    "--new-password", self.standard_password
+                ], check=True, capture_output=True)
+                
+                self.log(f"ArgoCD admin password updated to standard password", "SUCCESS")
+                
+            finally:
+                # Clean up port-forward
+                port_forward.terminate()
+                port_forward.wait()
+                
+        except Exception as e:
+            self.log(f"Failed to update ArgoCD password: {str(e)}", "WARNING")
+            self.log("ArgoCD will use the generated password", "INFO")
 
     # ================== Proxmox CSI Storage Integration ==================
 
@@ -1106,11 +1180,10 @@ alertmanager:
 │  • Grafana:  http://grafana.apps.sddc.info/                      │
 │  • Prometheus: http://prometheus.apps.sddc.info/                 │
 │                                                                    │
-│  ArgoCD Admin Password:                                           │
-│  kubectl -n argocd get secret argocd-initial-admin-secret \\     │
-│    -o jsonpath="{{.data.password}}" | base64 -d                    │
+│  All Applications Login: admin / SecurePassword123!             │
 │                                                                    │
-│  Grafana Login: admin / SecurePassword123!                       │
+│  ArgoCD:   admin / SecurePassword123!                            │
+│  Grafana:  admin / SecurePassword123!                            │
 │                                                                    │
 └────────────────────────────────────────────────────────────────────┘
 """)
