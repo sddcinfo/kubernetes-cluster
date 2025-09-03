@@ -2,6 +2,8 @@
 
 import argparse
 import os
+import requests
+import base64
 from kubernetes import client, config
 
 def check_node_health(verbose=False):
@@ -64,11 +66,72 @@ def check_pod_health(verbose=False):
         print(f"Error checking pod health: {e}")
         return None, None
 
+def test_argocd_login():
+    """Tests login to ArgoCD."""
+    print("\n--- Testing ArgoCD Login ---")
+    try:
+        v1 = client.CoreV1Api()
+        secret = v1.read_namespaced_secret("argocd-initial-admin-secret", "argocd")
+        password = base64.b64decode(secret.data["password"]).decode("utf-8")
+        url = "https://argocd.apps.sddc.info/api/v1/session"
+        payload = {"username": "admin", "password": password}
+        response = requests.post(url, json=payload, verify=False)
+        if response.status_code == 200:
+            print("ArgoCD login successful.")
+        else:
+            print(f"ArgoCD login failed. Status code: {response.status_code}")
+    except Exception as e:
+        print(f"Error testing ArgoCD login: {e}")
+
+def test_grafana_login():
+    """Tests login to Grafana."""
+    print("\n--- Testing Grafana Login ---")
+    try:
+        v1 = client.CoreV1Api()
+        secret = v1.read_namespaced_secret("kube-prometheus-stack-grafana", "monitoring")
+        password = base64.b64decode(secret.data["admin-password"]).decode("utf-8")
+        url = "https://grafana.apps.sddc.info/login"
+        payload = {"user": "admin", "password": password}
+        response = requests.post(url, json=payload, verify=False)
+        if response.status_code == 200:
+            print("Grafana login successful.")
+        else:
+            print(f"Grafana login failed. Status code: {response.status_code}")
+    except Exception as e:
+        print(f"Error testing Grafana login: {e}")
+
+def test_prometheus_access():
+    """Tests access to Prometheus."""
+    print("\n--- Testing Prometheus Access ---")
+    try:
+        url = "http://prometheus.apps.sddc.info"
+        response = requests.get(url)
+        if response.status_code == 200:
+            print("Prometheus access successful.")
+        else:
+            print(f"Prometheus access failed. Status code: {response.status_code}")
+    except Exception as e:
+        print(f"Error testing Prometheus access: {e}")
+
+def test_alertmanager_access():
+    """Tests access to Alertmanager."""
+    print("\n--- Testing Alertmanager Access ---")
+    try:
+        url = "http://alertmanager.apps.sddc.info"
+        response = requests.get(url)
+        if response.status_code == 200:
+            print("Alertmanager access successful.")
+        else:
+            print(f"Alertmanager access failed. Status code: {response.status_code}")
+    except Exception as e:
+        print(f"Error testing Alertmanager access: {e}")
+
 def main():
     """Main function to verify Kubernetes cluster health."""
     parser = argparse.ArgumentParser(description="Verify Kubernetes cluster health.")
     parser.add_argument("--kubeconfig", help="Path to the kubeconfig file.")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose output.")
+    parser.add_argument("--test-logins", action="store_true", help="Test logins to applications.")
     args = parser.parse_args()
 
     try:
@@ -99,6 +162,12 @@ def main():
             print(f"\nPod Health: Found {len(unhealthy_pods)} unhealthy pods:")
             for namespace, name, status, reason, message in unhealthy_pods:
                 print(f"  - Namespace: {namespace}, Pod: {name}, Status: {status}, Reason: {reason}, Message: {message}")
+
+    if args.test_logins:
+        test_argocd_login()
+        test_grafana_login()
+        test_prometheus_access()
+        test_alertmanager_access()
 
     print("\nCluster health verification finished.")
 

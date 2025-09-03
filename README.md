@@ -516,16 +516,111 @@ kubectl proxy
 # Access: http://localhost:8001/api/v1/namespaces/kubernetes-dashboard/services/https:kubernetes-dashboard:/proxy/
 ```
 
+## Operations
+
+## Cluster Status and Access
+
+### Cluster Access
+
+```bash
+# Direct connection to control plane
+export KUBECONFIG=~/.kube/config-direct
+kubectl get nodes
+
+# Direct connection works without certificate issues
+kubectl get nodes
+
+# Cluster information
+kubectl cluster-info
+```
+
+### Management Interfaces
+
+**Grafana Monitoring Dashboard** (Primary)
+- Ingress Access: http://grafana.apps.sddc.info/ (recommended)
+- Username: `admin` / Password: `kubernetes-admin-2024`
+- Features: Kubernetes cluster metrics, Proxmox infrastructure, Ceph storage
+
+**ArgoCD GitOps Platform**
+- Ingress Access: http://argocd.apps.sddc.info/
+- Username: `admin` / Password: Get from secret (see command above)
+- Features: Application lifecycle management, GitOps workflows
+
+**Prometheus Metrics**
+```bash
+kubectl port-forward -n monitoring svc/kube-prometheus-stack-prometheus 9090:9090
+# Access: http://localhost:9090
+```
+
+**AlertManager**
+```bash
+kubectl port-forward -n monitoring svc/kube-prometheus-stack-alertmanager 9093:9093
+# Access: http://localhost:9093
+```
+
+**Cilium Hubble UI**
+```bash
+kubectl port-forward -n kube-system svc/hubble-ui 12000:80
+# Access: http://localhost:12000
+```
+
+**Kubernetes Dashboard** (Optional)
+```bash
+kubectl proxy
+# Access: http://localhost:8001/api/v1/namespaces/kubernetes-dashboard/services/https:kubernetes-dashboard:/proxy/
+```
+
 ### Scaling Operations
 
 ```bash
 # Scale worker nodes
-vim terraform/terraform.tfvars  # Update worker_nodes count
+nvim terraform/terraform.tfvars  # Update worker_nodes count
 cd terraform && tofu apply
 
 # Add nodes to cluster
 kubectl get nodes
 ```
+
+## Cluster Health Verification
+
+A Python script, `scripts/verify-kubernetes-health.py`, is provided to perform a comprehensive health check of the Kubernetes cluster.
+
+### Features
+
+*   **Node Health Check:** Verifies that all nodes are in a `Ready` state.
+*   **Pod Health Check:** Checks that all pods are `Running` or have `Succeeded`.
+*   **Application Login Tests:** Verifies logins to ArgoCD and Grafana, and access to Prometheus and Alertmanager.
+*   **Verbose Output:** A `-v` or `--verbose` flag provides detailed information about all nodes and pods.
+
+### Usage
+
+To run the script, use the following command:
+
+```bash
+/home/sysadmin/claude/kubernetes-cluster/scripts/verify-kubernetes-health.py --kubeconfig /home/sysadmin/.kube/config-direct
+```
+
+The script automatically uses the Python virtual environment located in `kubespray/venv`.
+
+### Options
+
+*   `--kubeconfig`: Path to the kubeconfig file. Defaults to the standard Kubernetes configuration.
+*   `-v`, `--verbose`: Enable verbose output, showing the status of all nodes and pods.
+*   `--test-logins`: Run login tests for ArgoCD, Grafana, Prometheus, and Alertmanager.
+
+### Example
+
+```bash
+# Run a full health check including login tests
+/home/sysadmin/claude/kubernetes-cluster/scripts/verify-kubernetes-health.py --kubeconfig /home/sysadmin/.kube/config-direct --test-logins
+
+# Run a verbose health check
+/home/sysadmin/claude/kubernetes-cluster/scripts/verify-kubernetes-health.py --kubeconfig /home/sysadmin/.kube/config-direct --verbose
+```
+
+### Notes
+
+*   The login tests for ArgoCD and Grafana may produce an `InsecureRequestWarning`. This is because the script is disabling SSL certificate verification, which is often necessary for environments with self-signed certificates.
 
 ## Troubleshooting
 
