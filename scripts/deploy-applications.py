@@ -365,14 +365,24 @@ PROXMOX_INSECURE="true"
         try:
             # Load and validate configuration
             if not self.load_proxmox_config():
-                self.log("Cannot deploy CSI without configuration", "ERROR")
-                return False
+                self.log("Proxmox CSI configuration not found", "WARNING")
+                self.log("Skipping CSI deployment - storage will not be available", "WARNING")
+                self.log("To enable storage, create configs/proxmox-csi-config.env with:", "INFO")
+                self.log("  PROXMOX_URL=https://your-proxmox:8006", "INFO")
+                self.log("  PROXMOX_TOKEN_ID=your-token-id", "INFO")
+                self.log("  PROXMOX_TOKEN_SECRET=your-token-secret", "INFO")
+                self.log("  PROXMOX_STORAGE=your-storage-name", "INFO")
+                self.log("  PROXMOX_REGION=your-region", "INFO")
+                return True  # Return True to continue with other deployments
                 
             if not self.validate_proxmox_config():
-                return False
+                self.log("Invalid Proxmox CSI configuration", "WARNING")
+                self.log("Skipping CSI deployment - storage will not be available", "WARNING")
+                return True  # Return True to continue with other deployments
                 
             if not self.test_proxmox_connection():
                 self.log("Proxmox connection failed. Check credentials.", "WARNING")
+                self.log("Continuing with CSI deployment anyway...", "INFO")
             
             # Download official deployment
             self.log("Downloading official Proxmox CSI deployment...")
@@ -848,7 +858,60 @@ spec:
     
     def create_monitoring_helm_values(self):
         """Create Helm values with proper storage and consistent passwords"""
-        return f"""# Monitoring stack values with consistent configuration
+        
+        # Check if storage class is available
+        result = self.run_command(
+            "kubectl get storageclass proxmox-rbd 2>/dev/null",
+            "Check storage class",
+            check=False
+        )
+        storage_available = result.returncode == 0
+        
+        if not storage_available:
+            self.log("Storage class 'proxmox-rbd' not available - using ephemeral storage", "WARNING")
+            self.log("Data will be lost if pods restart. Configure CSI for persistent storage.", "WARNING")
+            
+            # Return values without persistent storage
+            return f"""# Monitoring stack values without persistent storage
+prometheus:
+  prometheusSpec:
+    retention: 15d
+    resources:
+      requests:
+        cpu: 200m
+        memory: 1Gi
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+
+grafana:
+  enabled: true
+  adminPassword: {self.standard_password}
+  persistence:
+    enabled: false  # No storage class available
+  service:
+    type: LoadBalancer
+    port: 80
+    annotations:
+      metallb.universe.tf/loadBalancerIPs: "10.10.1.50"
+  grafana.ini:
+    server:
+      domain: grafana.apps.sddc.info
+      root_url: http://grafana.apps.sddc.info/
+    users:
+      allow_sign_up: false
+
+alertmanager:
+  enabled: true
+  alertmanagerSpec:
+    service:
+      type: LoadBalancer
+      annotations:
+        metallb.universe.tf/loadBalancerIPs: "10.10.1.51"
+"""
+        
+        # Return values with persistent storage
+        return f"""# Monitoring stack values with persistent storage
 prometheus:
   prometheusSpec:
     storageSpec:
