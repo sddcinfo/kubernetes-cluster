@@ -725,13 +725,27 @@ spec:
                 self.run_command(f"kubectl apply -f {ingress_path}",
                                "Deploy application ingresses")
                 
-                # Verify ingress resources are created
+                # Verify ingress resources are created and working
                 self.log("Verifying ingress resources...")
                 result = self.run_command("kubectl get ingress --all-namespaces --no-headers | wc -l",
                                          "Count ingress resources")
                 ingress_count = int(result.stdout.strip())
                 if ingress_count > 0:
                     self.log(f"Created {ingress_count} ingress resources", "SUCCESS")
+                    
+                    # Wait a moment for ingress to be ready
+                    time.sleep(10)
+                    
+                    # Test ArgoCD ingress connectivity
+                    test_result = self.run_command(
+                        "curl -s -o /dev/null -w '%{http_code}' http://argocd.apps.sddc.info --connect-timeout 10",
+                        "Test ArgoCD ingress connectivity",
+                        check=False
+                    )
+                    if test_result.returncode == 0 and test_result.stdout.strip() == "200":
+                        self.log("ArgoCD ingress connectivity verified", "SUCCESS")
+                    else:
+                        self.log("ArgoCD ingress connectivity test failed - may need time to propagate", "WARNING")
                 else:
                     self.log("No ingress resources found", "WARNING")
                     
