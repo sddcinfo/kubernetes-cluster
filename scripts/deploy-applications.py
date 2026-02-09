@@ -1201,10 +1201,10 @@ alertmanager:
 │  • Grafana:  http://grafana.apps.sddc.info/                      │
 │  • Prometheus: http://prometheus.apps.sddc.info/                 │
 │                                                                    │
-│  All Applications Login: admin / SecurePassword123!             │
+│  All Applications Login: admin / [K8S_APP_PASSWORD]             │
 │                                                                    │
-│  ArgoCD:   admin / SecurePassword123! (updated automatically)    │
-│  Grafana:  admin / SecurePassword123!                            │
+│  ArgoCD:   admin / [K8S_APP_PASSWORD] (updated automatically)    │
+│  Grafana:  admin / [K8S_APP_PASSWORD]                            │
 │                                                                    │
 └────────────────────────────────────────────────────────────────────┘
 """)
