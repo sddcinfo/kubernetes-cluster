@@ -121,7 +121,7 @@ stringData:
     - url: https://10.10.1.21:8006/api2/json
       insecure: true
       token_id: "root@pam"
-      token_secret: "proxmox123"
+      token_secret: "CHANGEME"
       region: cluster
 ---
 # CSI Controller Deployment

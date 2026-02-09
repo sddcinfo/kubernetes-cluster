@@ -337,7 +337,7 @@ The deployment script includes comprehensive automation with lessons learned fro
 - **Reliable Storage Integration**: Uses proxmox-rbd storage class exclusively with proper volume binding
 - **Helm-based Monitoring**: Deploys monitoring stack via Helm for better resource management and reliability
 - **Automatic Cleanup**: Cleans up conflicting ArgoCD applications and resources automatically
-- **Consistent Configuration**: All passwords standardized to `SecurePassword123!` across the platform
+- **Consistent Configuration**: All passwords standardized to `[see K8S_APP_PASSWORD env var]` across the platform
 - **Enhanced Error Handling**: Comprehensive retry logic and graceful failure handling
 - **Resource Verification**: Validates all components are healthy before completion
 
@@ -380,14 +380,14 @@ The deployment script includes comprehensive automation with lessons learned fro
 - **Prometheus Metrics**: http://prometheus.apps.sddc.info/
 
 **Default Credentials:**
-- **Grafana**: Username `admin` / Password `SecurePassword123!`
+- **Grafana**: Username `admin` / Password `[see K8S_APP_PASSWORD env var]`
 - **ArgoCD**: Username `admin` / Password from secret:
   ```bash
   kubectl -n argocd get secret argocd-initial-admin-secret \
     -o jsonpath="{.data.password}" | base64 -d
   ```
 
-**Note**: All application passwords are standardized to `SecurePassword123!` for consistency across the platform.
+**Note**: All application passwords are standardized to `[see K8S_APP_PASSWORD env var]` for consistency across the platform.
 
 **Alternative Access (Port Forward):**
 ```bash

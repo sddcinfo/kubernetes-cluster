@@ -40,8 +40,8 @@ Console Nodes (IPMI) → Redfish Exporter → Prometheus → Grafana Dashboards
 
 ### Credentials (CORRECT)
 - Username: **admin**
-- Password: **VMware1!**
-- Auth String: **admin:VMware1!**
+- Password: **[see ~/.redfish_credentials]**
+- Auth String: **admin:[see ~/.redfish_credentials]**
 
 **Note**: Do NOT use root:calvin - this doesn't work with our Supermicro IPMI setup.
 
@@ -60,7 +60,7 @@ Deploy the complete monitoring stack:
 ```bash
 kubectl create namespace monitoring
 kubectl create secret generic redfish-credentials -n monitoring \
-  --from-literal="redfish_credentials=REDFISH_AUTH=\"admin:VMware1!\""
+  --from-literal="redfish_credentials=REDFISH_AUTH=\"admin:[see ~/.redfish_credentials]\""
 ```
 
 2. Deploy Redfish exporter:
@@ -115,7 +115,7 @@ Access Grafana at http://10.10.1.50
 ### No Data in Dashboard
 
 1. Check correct IPs (10.10.1.11-14, not .21-24)
-2. Check credentials (admin:VMware1!, not root:calvin)
+2. Check credentials (admin:[see ~/.redfish_credentials], not root:calvin)
 3. Verify network connectivity:
 ```bash
 kubectl run test --image=nicolaka/netshoot --rm --restart=Never -- ping -c 3 10.10.1.11
@@ -132,7 +132,7 @@ If you see color mode errors, ensure dashboard uses `"mode": "thresholds"` not `
 ## Key Lessons Learned
 
 1. **IP Confusion**: Console nodes (Supermicro IPMI) are at 10.10.1.11-14, NOT the Proxmox host IPs
-2. **Credentials**: Must use admin:VMware1!, not the default root:calvin
+2. **Credentials**: Must use admin:[see ~/.redfish_credentials], not the default root:calvin
 3. **Network Access**: Kubernetes pods CAN reach the console network (10.10.1.x)
 4. **Dashboard Compatibility**: Grafana color modes must use "thresholds" not "value"
 5. **Collection Timing**: Redfish API is slow, need appropriate timeouts and caching
@@ -141,6 +141,6 @@ If you see color mode errors, ensure dashboard uses `"mode": "thresholds"` not `
 
 During deployment, these issues were corrected:
 - nodes.json: IPs changed from .21-24 to .11-14
-- Secret: Credentials changed from root:calvin to admin:VMware1!
+- Secret: Credentials changed from root:calvin to admin:[see ~/.redfish_credentials]
 - Dashboard: Color mode changed from "value" to "thresholds"
 - Container paths: Fixed nodes.json location and credentials path

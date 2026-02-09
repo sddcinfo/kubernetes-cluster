@@ -71,7 +71,10 @@ def test_argocd_login():
     print("\n--- Testing ArgoCD Login ---")
     try:
         # First, try the standard password
-        standard_password = "SecurePassword123!"
+        standard_password = os.environ.get("K8S_APP_PASSWORD", "")
+        if not standard_password:
+            print("K8S_APP_PASSWORD env var not set, skipping password test")
+            return
         url = "https://argocd.apps.sddc.info/api/v1/session"
         payload = {"username": "admin", "password": standard_password}
         response = requests.post(url, json=payload, verify=False)

@@ -15,7 +15,7 @@ metadata:
 type: Opaque
 stringData:
   admin-user: admin
-  admin-password: SecurePassword123!
+  admin-password: "CHANGEME"
 ---
 # Kube-Prometheus-Stack via ArgoCD
 apiVersion: argoproj.io/v1alpha1
