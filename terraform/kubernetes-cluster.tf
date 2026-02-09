@@ -7,10 +7,14 @@ terraform {
   }
 }
 
+variable "proxmox_password" {
+  sensitive = true
+}
+
 provider "proxmox" {
   endpoint  = "https://10.10.1.21:8006/"
   username  = "root@pam"
-  password  = "proxmox123"
+  password  = var.proxmox_password
   insecure  = true
   
   # Performance optimizations

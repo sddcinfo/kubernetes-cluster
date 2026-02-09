@@ -95,3 +95,6 @@ Thumbs.db
 ehthumbs.dbpacker/variables.json
 packer/.env
 .proxmox-csi.env
+config/*.env
+*.tfstate
+*.tfstate.backup

@@ -52,7 +52,9 @@ class ApplicationsDeployer:
         ]
         
         # Standard password for all applications
-        self.standard_password = "SecurePassword123!"
+        self.standard_password = os.environ.get("K8S_APP_PASSWORD")
+        if self.standard_password is None:
+            raise RuntimeError("K8S_APP_PASSWORD env var must be set")
         
         self.ingress_components = [
             "ingress/complete-ingress-stack.yml",

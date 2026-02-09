@@ -20,7 +20,7 @@ kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f 
 echo "→ Creating Redfish credentials secret..."
 kubectl delete secret redfish-credentials -n monitoring 2>/dev/null || true
 kubectl create secret generic redfish-credentials -n monitoring \
-  --from-literal="redfish_credentials=REDFISH_AUTH=\"admin:VMware1!\""
+  --from-literal="redfish_credentials=REDFISH_AUTH=\"${REDFISH_AUTH:?Set REDFISH_AUTH env var}\""
 
 # Step 2: Update the redfish-exporter.yml with correct IPs if needed
 echo "→ Verifying console node IPs are correct (10.10.1.11-14)..."
